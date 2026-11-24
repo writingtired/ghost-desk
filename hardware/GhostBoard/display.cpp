@@ -37,6 +37,8 @@ struct Point {int x,y;};
 struct Calibration {Point raw[3];};
 static Calibration cal={};
 static const Point targets[]={{24,24},{295,24},{24,215},{160,120}};
+// Calibration records stay in the original landscape coordinate system.
+static Point mountedPoint(Point p){return {319-p.x,239-p.y};}
 static int step=0;
 static View view={};
 static bool dirty=true,held=false,pending=false;
@@ -110,7 +112,7 @@ static bool mapTouch(Point p,Point &out){
   Point a=cal.raw[0],b=cal.raw[1],c=cal.raw[2];
   float x1=b.x-a.x,y1=b.y-a.y,x2=c.x-a.x,y2=c.y-a.y,d=x1*y2-x2*y1;
   if(fabsf(d)<300000)return false;
-  float x=p.x-a.x,y=p.y-a.y;out={int(24+271*(x*y2-y*x2)/d),int(24+191*(x1*y-y1*x)/d)};
+  float x=p.x-a.x,y=p.y-a.y;out=mountedPoint({int(24+271*(x*y2-y*x2)/d),int(24+191*(x1*y-y1*x)/d)});
   return true;
 }
 static int control(Point p){
@@ -121,7 +123,7 @@ static int control(Point p){
 static void releaseTouch(){
   if(!calibrated()){
     if(step<3){cal.raw[step++]=finger;}
-    else {Point test;if(mapTouch(finger,test)&&abs(test.x-160)<26&&abs(test.y-120)<26){
+    else {Point test;Point center=mountedPoint(targets[3]);if(mapTouch(finger,test)&&abs(test.x-center.x)<26&&abs(test.y-center.y)<26){
       Preferences p;p.begin("ghostdesk",false);p.putBytes(touchKey(),&cal,sizeof(cal));p.end();step=4;
     }else step=0;}
     dirty=true;return;
@@ -140,7 +142,7 @@ static void paint(int mode){
   if(mode==3){page();return;}
   lcd->fillScreen(base);
   if(mode==0){text(58,71,"Touch calibration",2,white,18);text(56,98,"Tap the cross with the stylus",1,muted,38);
-    const Point &p=targets[step];lcd->drawCircle(p.x,p.y,9,amber);lcd->drawFastHLine(p.x-12,p.y,25,amber);lcd->drawFastVLine(p.x,p.y-12,25,amber);return;}
+    const Point p=mountedPoint(targets[step]);lcd->drawCircle(p.x,p.y,9,amber);lcd->drawFastHLine(p.x-12,p.y,25,amber);lcd->drawFastVLine(p.x,p.y-12,25,amber);return;}
   text(16,20,"GHOST DESK",2,white,24);
   text(16,86,mode==1?"Pair over USB":mode==2?"Joining Wi-Fi":"Waiting for PC",2,white,24);
   text(16,122,mode==1?"Run Set up board.cmd on Windows.":mode==2?"Check 2.4 GHz Wi-Fi or pair again.":"Open the paired Ghost Desk app.",1,muted,48);
@@ -155,11 +157,11 @@ void displaySetup(){
   const Panel &panel=panels[activePanel];
   lcdBus.begin(14,12,13,15);
   if(panel.st7789){
-    st.init(240,320,SPI_MODE3);st.setRotation(1);
-    // Adafruit rotation 1 uses RGB; the CYD2USB panel has BGR subpixels.
-    uint8_t landscapeBgr=ST77XX_MADCTL_MY|ST77XX_MADCTL_MV|0x08;
+    st.init(240,320,SPI_MODE3);st.setRotation(3);
+    // Preserve the CYD2USB panel's BGR subpixel order in rotated landscape.
+    uint8_t landscapeBgr=ST77XX_MADCTL_MX|ST77XX_MADCTL_MV|0x08;
     st.sendCommand(ST77XX_MADCTL,&landscapeBgr,1);lcd=&st;
-  }else{ili.begin(40000000);ili.setRotation(1);lcd=&ili;}
+  }else{ili.begin(40000000);ili.setRotation(3);lcd=&ili;}
   lcd->invertDisplay(panel.invert);lcd->setTextWrap(false);lcd->fillScreen(base);digitalWrite(21,HIGH);
   pinMode(tCs,OUTPUT);digitalWrite(tCs,HIGH);pinMode(tClk,OUTPUT);digitalWrite(tClk,LOW);
   pinMode(tDin,OUTPUT);pinMode(tDout,INPUT);pinMode(tIrq,INPUT);pinMode(0,INPUT_PULLUP);
