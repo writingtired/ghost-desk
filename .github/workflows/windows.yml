@@ -1,0 +1,27 @@
+name: Build Windows app
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  portable:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Test desktop adapters
+        run: node tests/desktop.mjs
+      - name: Build portable ZIP
+        shell: pwsh
+        run: ./package.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ghost-Desk-Windows-x64
+          path: dist/Ghost-Desk-Windows-x64.zip
+          if-no-files-found: error

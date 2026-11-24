@@ -1,0 +1,367 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Web.Script.Serialization;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
+using Screen = System.Windows.Forms.Screen;
+
+namespace GhostDesk {
+    public sealed class Chat {
+        public string id { get; set; }
+        public string title { get; set; }
+        public string provider { get; set; }
+        public string state { get; set; }
+        public int hue { get; set; }
+        public long updatedAt { get; set; }
+    }
+    public sealed class Snapshot {
+        public int version { get; set; }
+        public Chat[] sessions { get; set; }
+    }
+    public sealed class FocusResult {
+        public bool ok { get; set; }
+        public string message { get; set; }
+    }
+
+    static class Native {
+        [DllImport("user32.dll")] internal static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
+        [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
+    }
+
+    sealed class Ghost : FrameworkElement {
+        static readonly string[] Pixels = {
+            "    ####    ", "  ########  ", " ########## ", " ########## ",
+            "############", "############", "############", "############",
+            "############", "############", "### #### ###", "##   ##   ##"
+        };
+        readonly Brush body;
+        readonly string state;
+        internal Ghost(Chat chat, int size) {
+            Width=Height=size; state=chat.state; RenderOptions.SetEdgeMode(this,EdgeMode.Aliased);
+            body=state=="unknown" ? Brushes.SlateGray : Hue(chat.hue);
+            if (state=="stopped") Opacity=.55;
+            IsHitTestVisible=false;
+            if (!SystemParameters.ClientAreaAnimation) return;
+            if (state=="working" || state=="attention") {
+                var shift=new TranslateTransform();
+                RenderTransform=shift;
+                var animation=new DoubleAnimation(0,state=="working"?-3:2,
+                    TimeSpan.FromMilliseconds(state=="working"?480:240)) {
+                    AutoReverse=true,RepeatBehavior=RepeatBehavior.Forever,
+                    EasingFunction=new SineEase {EasingMode=EasingMode.EaseInOut}
+                };
+                shift.BeginAnimation(state=="working"?TranslateTransform.YProperty:TranslateTransform.XProperty,animation);
+            }
+        }
+        static Brush Hue(int hue) {
+            // HSL at the same saturation and lightness as the web panel.
+            double h=((hue%360+360)%360)/60.0, c=.4368, x=c*(1-Math.Abs(h%2-1)), m=.72-c/2;
+            double[] rgb=h<1?new[]{c,x,0}:h<2?new[]{x,c,0}:h<3?new[]{0,c,x}:h<4?new[]{0,x,c}:h<5?new[]{x,0,c}:new[]{c,0,x};
+            var brush=new SolidColorBrush(Color.FromRgb((byte)((rgb[0]+m)*255),(byte)((rgb[1]+m)*255),(byte)((rgb[2]+m)*255)));
+            brush.Freeze(); return brush;
+        }
+        protected override void OnRender(DrawingContext dc) {
+            double unit=Width/12;
+            for(int y=0;y<Pixels.Length;y++) {
+                for(int x=0;x<12;) {
+                    if(Pixels[y][x]!='#') {x++; continue;}
+                    int start=x++;
+                    while(x<12 && Pixels[y][x]=='#') x++;
+                    dc.DrawRectangle(body,null,new Rect(start*unit,y*unit,(x-start)*unit,unit));
+                }
+            }
+            foreach(int x in new[]{3,8}) {
+                if(state=="finished" || state=="stopped") {
+                    dc.DrawRectangle(Brushes.MidnightBlue,null,new Rect(x*unit,6*unit,3*unit,unit));
+                    continue;
+                }
+                dc.DrawRectangle(Brushes.White,null,new Rect(x*unit,4*unit,3*unit,4*unit));
+                dc.DrawRectangle(Brushes.MidnightBlue,null,new Rect((x+1)*unit,5*unit,2*unit,2*unit));
+            }
+            if(state=="attention") dc.DrawRectangle(Brushes.Gold,null,new Rect(9*unit,0,3*unit,2*unit));
+        }
+    }
+
+    sealed class DockWindow : Window {
+        const int RailWidth=42, FullWidth=338, MaxGhosts=9;
+        static readonly Brush Base=Ink("#12171c"), Line=Ink("#384248"), White=Ink("#eef3ef"),
+            Muted=Ink("#b1bcc0"), Hover=Ink("#273238"), Lime=Ink("#c0f49e"), Amber=Ink("#ffcd80");
+        static readonly Brush Clay=Ink("#533b32"), Blue=Ink("#33415b"), Sage=Ink("#2c493e");
+        static readonly string[] Order={"attention","working","finished","stopped","available","unknown"};
+        static readonly string[] Labels={"Needs you","Working","Turn ended","Stopped","Available","Status unknown"};
+        readonly HttpClient http;
+        readonly JavaScriptSerializer json=new JavaScriptSerializer();
+        readonly DispatcherTimer poll=new DispatcherTimer(), slide=new DispatcherTimer();
+        readonly Stopwatch elapsed=new Stopwatch();
+        readonly Border frame=new Border();
+        readonly Grid surface=new Grid(), detail=new Grid();
+        readonly Button rail=ButtonOf("Expand Ghost Desk"), hide=ButtonOf("Hide"), options=ButtonOf("Dock options");
+        readonly StackPanel railItems=new StackPanel(), rows=new StackPanel();
+        readonly ScrollViewer scroll=new ScrollViewer();
+        readonly TextBlock count=Text("",12,Muted), notice=Text("",12,Amber);
+        readonly string prefs;
+        Screen screen;
+        bool left,expanded,busy,opening,closed,connected;
+        string signature=null;
+        Chat[] chats=new Chat[0];
+        double spread,from,to;
+        IntPtr hwnd;
+        static Brush Ink(string hex) {
+            var brush=(SolidColorBrush)new BrushConverter().ConvertFromString(hex);
+            brush.Freeze(); return brush;
+        }
+        static TextBlock Text(string value,double size,Brush color) {
+            return new TextBlock {Text=value,FontSize=size,Foreground=color,VerticalAlignment=VerticalAlignment.Center,
+                                  TextTrimming=TextTrimming.CharacterEllipsis};
+        }
+        static Button ButtonOf(string name, Brush highlight=null) {
+            var b=new Button {Focusable=true,Cursor=System.Windows.Input.Cursors.Hand,Foreground=White,
+                Background=Brushes.Transparent,BorderThickness=new Thickness(0),Padding=new Thickness(0),
+                HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalContentAlignment=VerticalAlignment.Center};
+            AutomationProperties.SetName(b,name);
+            var factory=new FrameworkElementFactory(typeof(Border));
+            factory.Name="bg";
+            factory.SetValue(Border.BackgroundProperty,new TemplateBindingExtension(Control.BackgroundProperty));
+            var presenter=new FrameworkElementFactory(typeof(ContentPresenter));
+            presenter.SetValue(ContentPresenter.MarginProperty,new TemplateBindingExtension(Control.PaddingProperty));
+            factory.AppendChild(presenter);
+            var template=new ControlTemplate(typeof(Button)) {VisualTree=factory};
+            foreach(var property in new[]{UIElement.IsMouseOverProperty,UIElement.IsKeyboardFocusedProperty}) {
+                var trigger=new Trigger {Property=property,Value=true};
+                trigger.Setters.Add(new Setter(Border.BackgroundProperty,highlight??Hover,"bg"));
+                template.Triggers.Add(trigger);
+            }
+            b.Template=template;
+            return b;
+        }
+        static int Rank(Chat s) {int i=Array.IndexOf(Order,s.state); return i<0?5:i;}
+        static string Label(Chat s) {return Labels[Rank(s)];}
+        static Brush ProviderTint(string provider) {
+            switch(provider) {
+                case "Claude": case "Claude Code": return Clay;
+                case "Gemini": case "Antigravity": return Blue;
+                case "ChatGPT": case "Codex": return Sage;
+                default: return Line;
+            }
+        }
+        static Border GhostTile(Chat chat,bool compact) {
+            var tile=new Border {
+                Width=compact?34:39, Height=compact?28:37, Background=ProviderTint(chat.provider),
+                CornerRadius=new CornerRadius(6), HorizontalAlignment=HorizontalAlignment.Center,
+                VerticalAlignment=VerticalAlignment.Center,
+                Child=new Ghost(chat,compact?21:25) {HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center}
+            };
+            if(compact) tile.ToolTip=chat.provider+" · "+chat.title+" · "+Label(chat);
+            return tile;
+        }
+
+        readonly bool managed;
+        internal DockWindow(int port,bool managed=false) {
+            this.managed=managed;
+            Title="Ghost Desk – edge dock";
+            AutomationProperties.SetName(this,"Ghost Desk edge dock");
+            http=new HttpClient(new HttpClientHandler{UseProxy=false}) {BaseAddress=new Uri("http://127.0.0.1:"+port),Timeout=TimeSpan.FromSeconds(20)};
+            prefs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Ghost Desk","dock-"+port+".txt");
+            screen=Screen.FromPoint(System.Windows.Forms.Cursor.Position);
+            try {
+                var saved=File.ReadAllLines(prefs);
+                if(saved.Length==2) {left=saved[0]=="left";screen=Screen.AllScreens.FirstOrDefault(s=>s.DeviceName==saved[1])??screen;}
+            } catch(IOException) {} catch(UnauthorizedAccessException) {}
+            WindowStyle=WindowStyle.None; AllowsTransparency=true; Background=Brushes.Transparent;
+            ResizeMode=ResizeMode.NoResize; Topmost=true; ShowInTaskbar=false; ShowActivated=false;
+            Width=RailWidth; Height=76; WindowStartupLocation=WindowStartupLocation.Manual;
+            FontFamily=new FontFamily("Inter, Segoe UI"); UseLayoutRounding=true;
+            frame.Background=Base;frame.BorderBrush=Line;frame.BorderThickness=new Thickness(1);frame.Child=surface;
+            Content=frame; surface.ClipToBounds=true;
+            BuildDetail();
+            surface.Children.Add(detail);surface.Children.Add(rail);detail.Visibility=Visibility.Collapsed;
+            rail.Content=railItems;rail.ToolTip="Open Ghost Desk";rail.Click+=(s,e)=>Toggle(true);
+            rail.ContextMenuOpening+=(s,e)=>rail.ContextMenu=Menu();
+            rail.ContextMenu=Menu();
+            KeyDown+=(s,e)=>{if(expanded && e.Key==System.Windows.Input.Key.Escape){Toggle(false);e.Handled=true;}};
+            SourceInitialized+=(s,e)=>{hwnd=new WindowInteropHelper(this).Handle;Place();};
+            Loaded+=async(s,e)=>{Draw();Place();poll.Start();await Poll();};
+            poll.Interval=TimeSpan.FromMilliseconds(2100);poll.Tick+=async(s,e)=>await Poll();
+            slide.Interval=TimeSpan.FromMilliseconds(16);
+            slide.Tick+=(s,e)=>{
+                double t=Math.Min(1,elapsed.Elapsed.TotalMilliseconds/165.0);
+                spread=from+(to-from)*(1-Math.Pow(1-t,3)); Place();
+                if(t>=1) slide.Stop();
+            };
+            Closed+=(s,e)=>{closed=true;poll.Stop();slide.Stop();http.Dispose();};
+        }
+        void BuildDetail() {
+            detail.Margin=new Thickness(14,14,14,10);
+            for(int i=0;i<4;i++) detail.RowDefinitions.Add(new RowDefinition {Height=i==2?new GridLength(1,GridUnitType.Star):GridLength.Auto});
+            var header=new DockPanel();
+            hide.Content=Text("Hide",13,White);hide.Padding=new Thickness(8,4,8,4);hide.Click+=(s,e)=>Toggle(false);
+            DockPanel.SetDock(hide,Dock.Right);header.Children.Add(hide);
+            options.Content=Text("···",19,Muted);options.Padding=new Thickness(8,0,8,0);options.ToolTip="Dock options";
+            options.Click+=(s,e)=>{var m=Menu();m.PlacementTarget=options;m.Placement=PlacementMode.Bottom;m.IsOpen=true;};
+            DockPanel.SetDock(options,Dock.Right);header.Children.Add(options);
+            var heading=Text("Ghost Desk",21,White);heading.FontWeight=FontWeights.SemiBold;header.Children.Add(heading);
+            detail.Children.Add(header);
+            count.Margin=new Thickness(0,4,0,12);Grid.SetRow(count,1);detail.Children.Add(count);
+            scroll.VerticalScrollBarVisibility=ScrollBarVisibility.Auto;scroll.HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled;
+            scroll.Content=rows;Grid.SetRow(scroll,2);detail.Children.Add(scroll);
+            notice.TextWrapping=TextWrapping.Wrap;notice.Visibility=Visibility.Collapsed;notice.Margin=new Thickness(0,8,0,0);
+            Grid.SetRow(notice,3);detail.Children.Add(notice);
+        }
+        ContextMenu Menu() {
+            var menu=new ContextMenu();
+            foreach(bool onLeft in new[]{true,false}) {
+                var item=new MenuItem {Header=onLeft?"Dock on left":"Dock on right",IsChecked=left==onLeft};
+                item.Click+=(s,e)=>{left=onLeft;Save();Draw();Place();};
+                menu.Items.Add(item);
+            }
+            if(Screen.AllScreens.Length>1) {
+                var displays=new MenuItem {Header="Move to display"};int number=0;
+                foreach(var display in Screen.AllScreens) {
+                    var target=display;
+                    var item=new MenuItem {Header="Display "+(++number)+(display.Primary?" (primary)":""),
+                        IsChecked=display.DeviceName==screen.DeviceName};
+                    item.Click+=(s,e)=>{screen=target;Save();Place();};displays.Items.Add(item);
+                }
+                menu.Items.Add(displays);
+            }
+            menu.Items.Add(new Separator());
+            if(managed) {
+                var hideToTray=new MenuItem{Header="Hide to tray"};hideToTray.Click+=(s,e)=>Hide();menu.Items.Add(hideToTray);
+            }
+            var close=new MenuItem{Header=managed?"Quit Ghost Desk":"Close dock"};close.Click+=(s,e)=>Close();menu.Items.Add(close); return menu;
+        }
+        void Save() {
+            try {Directory.CreateDirectory(Path.GetDirectoryName(prefs));File.WriteAllLines(prefs,new[]{left?"left":"right",screen.DeviceName});}
+            catch(IOException) {Message("Could not save dock position.");} catch(UnauthorizedAccessException) {Message("Could not save dock position.");}
+        }
+        void Toggle(bool open) {
+            expanded=open;rail.Visibility=open?Visibility.Collapsed:Visibility.Visible;detail.Visibility=open?Visibility.Visible:Visibility.Collapsed;
+            from=spread;to=open?1:0;
+            if(SystemParameters.ClientAreaAnimation) {elapsed.Restart();slide.Start();}
+            else {spread=to;Place();}
+            if(open) hide.Focus();else rail.Focus();
+        }
+        internal void Reveal() {if(!closed){Show();Activate();Toggle(true);}}
+        void Place() {
+            if(hwnd==IntPtr.Zero || closed) return;
+            screen=Screen.AllScreens.FirstOrDefault(s=>s.DeviceName==screen.DeviceName)??Screen.PrimaryScreen;
+            var area=screen.WorkingArea;
+            double dpi=Math.Max(1,Native.GetDpiForWindow(hwnd))/96.0;
+            int visible=Math.Min(MaxGhosts,Math.Max(1,chats.Length));
+            double thinHeight=30+visible*30+(chats.Length>MaxGhosts?22:0);
+            double fullHeight=Math.Min(540,Math.Max(166,102+chats.Length*54+(notice.Visibility==Visibility.Visible?50:0)));
+            int w=Math.Min(area.Width,(int)Math.Round((RailWidth+(FullWidth-RailWidth)*spread)*dpi));
+            int h=Math.Min(area.Height,(int)Math.Round((thinHeight+(fullHeight-thinHeight)*spread)*dpi));
+            var corner=left?new CornerRadius(0,12,12,0):new CornerRadius(12,0,0,12);
+            if(frame.CornerRadius!=corner) frame.CornerRadius=corner;
+            int x=left?area.Left:area.Right-w,y=area.Top+(area.Height-h)/2;
+            // Keep the shell work area usable everywhere outside this exact window.
+            Native.SetWindowPos(hwnd,IntPtr.Zero,x,y,w,h,0x0014);
+        }
+        async Task Poll() {
+            if(busy||closed)return; busy=true;
+            try {
+                var payload=await http.GetStringAsync("/v1/sessions");
+                if(closed)return;
+                var snap=json.Deserialize<Snapshot>(payload);
+                if(snap==null || snap.version!=1 || snap.sessions==null) throw new FormatException();
+                chats=snap.sessions.Where(s=>s!=null && !String.IsNullOrEmpty(s.id))
+                    .OrderBy(Rank).ThenByDescending(s=>s.updatedAt).ThenBy(s=>s.id).ToArray();
+                connected=true;
+            } catch(Exception) {if(closed)return;connected=false;chats=new Chat[0];}
+            finally {busy=false;}
+            string next=json.Serialize(new object[]{connected,chats.Select(s=>new object[]{s.id,s.title,s.provider,s.state,s.hue}).ToArray()});
+            if(next!=signature) {signature=next;Draw();}
+            Place();
+        }
+        void Draw() {
+            string focused=(System.Windows.Input.Keyboard.FocusedElement as Button ?? rail).Tag as string;
+            double offset=scroll.VerticalOffset;
+            railItems.Children.Clear();rows.Children.Clear();
+            var arrow=Text(left?"›":"‹",16,Muted);arrow.HorizontalAlignment=HorizontalAlignment.Center;railItems.Children.Add(arrow);
+            foreach(var chat in chats.Take(MaxGhosts)) {
+                var icon=GhostTile(chat,true);icon.Margin=new Thickness(0,1,0,1);
+                railItems.Children.Add(icon);
+            }
+            if(chats.Length==0) railItems.Children.Add(new Ghost(new Chat{state="unknown"},22){HorizontalAlignment=HorizontalAlignment.Center});
+            if(chats.Length>MaxGhosts) {
+                var more=Text("+"+(chats.Length-MaxGhosts),11,Muted);more.HorizontalAlignment=HorizontalAlignment.Center;railItems.Children.Add(more);
+            }
+            int work=chats.Count(s=>s.state=="working"), attention=chats.Count(s=>s.state=="attention");
+            string summary=connected?chats.Length+" chats · "+work+" working · "+attention+" need you":"PC bridge offline";
+            count.Text=summary;rail.ToolTip="Open Ghost Desk · "+summary;AutomationProperties.SetHelpText(rail,summary);
+            if(chats.Length==0) rows.Children.Add(Text(connected?"No recent chats":"Waiting for the PC bridge…",14,Muted));
+            foreach(Chat chat in chats) {
+                var tint=ProviderTint(chat.provider);
+                var wash=tint.Clone();wash.Opacity=.5;wash.Freeze();
+                var b=ButtonOf("Open "+chat.provider+" chat, "+chat.title+", "+Label(chat),tint);
+                b.Background=wash;b.Tag=chat.id;b.Padding=new Thickness(5,0,6,0);
+                b.ToolTip=chat.title+" · "+Label(chat);
+                var line=new DockPanel{Height=53,LastChildFill=true};
+                var icon=GhostTile(chat,false);icon.Margin=new Thickness(0,0,10,0);
+                DockPanel.SetDock(icon,Dock.Left);line.Children.Add(icon);
+                var copy=new StackPanel{VerticalAlignment=VerticalAlignment.Center};
+                var title=Text(chat.title,14,White);title.FontWeight=FontWeights.SemiBold;copy.Children.Add(title);
+                copy.Children.Add(Text(chat.provider+"  /  "+Label(chat),12,chat.state=="attention"?Amber:chat.state=="finished"?Lime:Muted));
+                line.Children.Add(copy);b.Content=new Border{BorderThickness=new Thickness(0,1,0,0),BorderBrush=Line,Child=line};
+                b.Click+=async(s,e)=>await Open(chat);rows.Children.Add(b);
+                if(focused==chat.id && expanded) b.Focus();
+            }
+            scroll.ScrollToVerticalOffset(offset);
+        }
+        void Message(string message) {notice.Text=message??"";notice.Visibility=String.IsNullOrEmpty(message)?Visibility.Collapsed:Visibility.Visible;Place();}
+        async Task Open(Chat chat) {
+            if(opening||closed)return;opening=true;Message("Opening "+chat.provider+"…");
+            try {
+                using(var request=new HttpRequestMessage(HttpMethod.Post,"/v1/focus")) {
+                    request.Headers.Add("Origin",http.BaseAddress.GetLeftPart(UriPartial.Authority));
+                    request.Content=new StringContent(json.Serialize(new{id=chat.id}),Encoding.UTF8,"application/json");
+                    using(var response=await http.SendAsync(request)) {
+                        var result=json.Deserialize<FocusResult>(await response.Content.ReadAsStringAsync());
+                        if(!closed) Message(response.IsSuccessStatusCode && result!=null && result.ok?result.message:"Could not open this chat.");
+                    }
+                }
+            } catch(Exception) {if(!closed) Message("Could not reach the PC bridge.");}
+            finally {opening=false;}
+        }
+    }
+
+    static class Program {
+        [STAThread] static void Main(string[] args) {
+            bool managed=args.Length==0;
+            int port;
+            string value=managed?(Environment.GetEnvironmentVariable("GHOST_DESK_PORT")??"43821"):args[0];
+            if(!Int32.TryParse(value,out port)||port<1||port>65535)return;
+            bool first;
+            using(var mutex=new Mutex(true,@"Local\GhostDeskEdge-"+port,out first))
+            using(var reveal=new EventWaitHandle(false,EventResetMode.AutoReset,@"Local\GhostDeskReveal-"+port)) {
+                if(!first){reveal.Set();return;}
+                var app=new Application();
+                var window=new DockWindow(port,managed);
+                var listener=ThreadPool.RegisterWaitForSingleObject(reveal,(s,t)=>{
+                    if(!app.Dispatcher.HasShutdownStarted) app.Dispatcher.BeginInvoke(new Action(window.Reveal));
+                },null,Timeout.Infinite,false);
+                try {
+                    using(var host=managed?new AppHost(port,window):null) {app.Run(window);}
+                } catch(Exception error) {
+                    MessageBox.Show(error.Message,"Ghost Desk",MessageBoxButton.OK,MessageBoxImage.Error);
+                } finally {listener.Unregister(null);}
+                mutex.ReleaseMutex();
+            }
+        }
+    }
+}

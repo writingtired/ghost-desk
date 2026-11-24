@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Ghost Desk • AI tabs",
+  "version": "0.1.0",
+  "description": "Report chat titles and visible activity to Ghost Desk on this PC and focus a selected tab.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoLDMS9m788ZakUH0+LU+iBKI3cXYqRWPHhxDyzkSZ04A9Z7YDRNeEsosQOlkOXNkz2rWSxiNmKg0uD3HdObIMibG8dIYSYPU2XZT3lINWeXFqSC4E/LLptTqcld8oD2n4WQenuGrEpCy+3up83Y5003tTs0q/JHCjUTqu07SnFzeucvmvW7Q74SPcxqZUUqFzGcKOvkse7E9RwV5OfEsJZQtr4+APXAeOO+/CG7lAokBKOx+PPzXVANWuAmp0JDo0WcsJaN1pZ5fjC2XWkTpKZK1DwB+Sk4+BtxIbYiL1WS5FSuqc3FnmqL1xessaBo9n757w/L43tnGbH0eTjOyEQIDAQAB",
+  "permissions": [
+    "alarms",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*"
+  ],
+  "background": {
+    "service_worker": "worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "observe.js"
+      ]
+    }
+  ]
+}
