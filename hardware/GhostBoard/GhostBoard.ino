@@ -13,6 +13,7 @@ bool hexString(const char *value,size_t size) {
   return strlen(value)==size && strspn(value,"0123456789abcdef")==size;
 }
 void serialCommand() {
+  if(panelCommand(line))return;
   if(line=="GHOST?") {
     Serial.printf("GHOST1 %s %s %s\n",hostName,WiFi.isConnected()?WiFi.localIP().toString().c_str():"0.0.0.0",cfg.pairId[0]?cfg.pairId:"none");
     return;

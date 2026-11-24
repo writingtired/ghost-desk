@@ -2,10 +2,34 @@
 #include "sprites.h"
 #include <SPI.h>
 #include <Adafruit_ILI9341.h>
+#include <Adafruit_ST7789.h>
 #include <math.h>
 
 static SPIClass lcdBus(HSPI);
-static Adafruit_ILI9341 lcd(&lcdBus,2,15,-1);
+static Adafruit_ILI9341 ili(&lcdBus,2,15,-1);
+static Adafruit_ST7789 st(&lcdBus,15,2,-1);
+static Adafruit_SPITFT *lcd;
+struct Panel {const char *name;bool st7789,invert;};
+static const Panel panels[]={{"ST7789",true,false},{"ILI9341",false,false},
+                             {"ST7789-inverted",true,true},{"ILI9341-inverted",false,true}};
+static uint8_t activePanel=0;
+static const char *touchKey(){return panels[activePanel].st7789?"touch-st":"touch";}
+bool panelCommand(const String &line){
+  if(line=="PANEL?"){Serial.printf("GHOST PANEL %s\n",panels[activePanel].name);return true;}
+  if(!line.startsWith("PANEL "))return false;
+  String requested=line.substring(6);
+  for(uint8_t i=0;i<sizeof(panels)/sizeof(panels[0]);i++){
+    if(requested!=panels[i].name)continue;
+    if(i!=activePanel){
+      Preferences p;
+      bool saved=p.begin("ghostdesk",false)&&p.putUChar("panel",i)==1;
+      p.end();if(!saved){Serial.println("GHOST ERROR panel storage");return true;}
+      Serial.flush();ESP.restart();
+    }
+    return true;
+  }
+  Serial.println("GHOST ERROR unknown panel");return true;
+}
 static GFXcanvas16 tile(32,32);
 static const uint16_t base=0x10c3,white=0xef9e,muted=0xa596,amber=0xfe70;
 static const int tClk=25,tDin=32,tDout=39,tCs=33,tIrq=36;
@@ -21,10 +45,10 @@ static Point finger={};static char downId[100],statusMsg[36];
 static int downControl=-1,lastMode=-1;
 static bool calibrated(){return step>=4;}
 static void text(int x,int y,const char *s,int size,uint16_t ink,int chars){
-  lcd.setCursor(x,y);lcd.setTextColor(ink);lcd.setTextSize(size);
-  int n=strlen(s);for(int i=0;i<n&&i<chars;i++)lcd.write(n>chars&&i==chars-1?'~':s[i]);
+  lcd->setCursor(x,y);lcd->setTextColor(ink);lcd->setTextSize(size);
+  int n=strlen(s);for(int i=0;i<n&&i<chars;i++)lcd->write(n>chars&&i==chars-1?'~':s[i]);
 }
-static uint16_t rgb(int r,int g,int b){return lcd.color565(r,g,b);}
+static uint16_t rgb(int r,int g,int b){return lcd->color565(r,g,b);}
 static uint16_t hueColor(int deg){
   float h=(deg%360)/60.f,c=.4368f,x=c*(1-fabsf(fmodf(h,2)-1)),m=.72f-c/2;
   float r=h<1||h>=5?c:h<2||h>=4?x:0;
@@ -47,26 +71,26 @@ static void ghost(int row,bool frame){
   for(int y=0;y<16;y++)for(int x=0;x<16;x++)if(ghostMask[y]&(0x8000>>x))tile.drawPixel(ox+x,oy+y,body);
   const uint16_t inks[]={0,0x18c8,0xffff,amber};
   for(const auto &p:marks[face])if(p.w)tile.fillRect(ox+p.x,oy+p.y,p.w,p.h,inks[p.ink]);
-  lcd.drawRGBBitmap(5,32+row*43,tile.getBuffer(),32,32);
+  lcd->drawRGBBitmap(5,32+row*43,tile.getBuffer(),32,32);
 }
 static void page(){
-  lcd.fillScreen(base);text(7,8,"GHOST DESK",2,white,12);
+  lcd->fillScreen(base);text(7,8,"GHOST DESK",2,white,12);
   char count[24];snprintf(count,sizeof(count),"%d chats",view.total);text(235,11,count,1,muted,13);
   for(int i=0;i<view.count;i++){
     const ChatRow &r=view.rows[i];int y=27+i*43;uint16_t badge,wash;colors(r.provider,badge,wash);
-    lcd.fillRect(0,y,320,42,wash);ghost(i,false);
+    lcd->fillRect(0,y,320,42,wash);ghost(i,false);
     text(44,y+3,r.title,2,white,22);
     char detail[90];snprintf(detail,sizeof(detail),"%s%s / %s",r.pin?"* ":"",r.provider,r.context);
     int labelWidth=strlen(r.label)*6;
     text(44,y+27,detail,1,muted,(266-labelWidth)/6);text(314-labelWidth,y+27,r.label,1,!strcmp(r.state,"attention")?amber:white,22);
   }
   if(!view.count)text(14,94,view.total?"No current work":"No recent chats",2,muted,24);
-  lcd.drawFastHLine(0,201,320,0x42a8);
+  lcd->drawFastHLine(0,201,320,0x42a8);
   const char *left=view.all?"Current":"All chats";
   text(8,215,left,1,white,10);text(124,215,"< Prev",1,view.page?white:muted,8);
   char n[20];snprintf(n,sizeof(n),"%d/%d",view.page+1,view.pages);text(192,215,n,1,muted,9);
   text(263,215,"Next >",1,view.page+1<view.pages?white:muted,8);
-  if(statusMsg[0]){lcd.fillRect(0,203,320,37,base);text(8,214,statusMsg,1,amber,50);}
+  if(statusMsg[0]){lcd->fillRect(0,203,320,37,base);text(8,214,statusMsg,1,amber,50);}
 }
 static byte transfer(byte value){
   byte result=0;
@@ -98,7 +122,7 @@ static void releaseTouch(){
   if(!calibrated()){
     if(step<3){cal.raw[step++]=finger;}
     else {Point test;if(mapTouch(finger,test)&&abs(test.x-160)<26&&abs(test.y-120)<26){
-      Preferences p;p.begin("ghostdesk",false);p.putBytes("touch",&cal,sizeof(cal));p.end();step=4;
+      Preferences p;p.begin("ghostdesk",false);p.putBytes(touchKey(),&cal,sizeof(cal));p.end();step=4;
     }else step=0;}
     dirty=true;return;
   }
@@ -114,9 +138,9 @@ static void releaseTouch(){
 }
 static void paint(int mode){
   if(mode==3){page();return;}
-  lcd.fillScreen(base);
+  lcd->fillScreen(base);
   if(mode==0){text(58,71,"Touch calibration",2,white,18);text(56,98,"Tap the cross with the stylus",1,muted,38);
-    const Point &p=targets[step];lcd.drawCircle(p.x,p.y,9,amber);lcd.drawFastHLine(p.x-12,p.y,25,amber);lcd.drawFastVLine(p.x,p.y-12,25,amber);return;}
+    const Point &p=targets[step];lcd->drawCircle(p.x,p.y,9,amber);lcd->drawFastHLine(p.x-12,p.y,25,amber);lcd->drawFastVLine(p.x,p.y-12,25,amber);return;}
   text(16,20,"GHOST DESK",2,white,24);
   text(16,86,mode==1?"Pair over USB":mode==2?"Joining Wi-Fi":"Waiting for PC",2,white,24);
   text(16,122,mode==1?"Run Set up board.cmd on Windows.":mode==2?"Check 2.4 GHz Wi-Fi or pair again.":"Open the paired Ghost Desk app.",1,muted,48);
@@ -125,11 +149,21 @@ static void paint(int mode){
 }
 void displaySetup(){
   pinMode(21,OUTPUT);digitalWrite(21,LOW);
-  lcdBus.begin(14,12,13,15);lcd.begin(40000000);lcd.setRotation(1);lcd.setTextWrap(false);lcd.fillScreen(base);digitalWrite(21,HIGH);
+  Preferences p;p.begin("ghostdesk",true);
+  activePanel=p.getUChar("panel",0);
+  if(activePanel>=sizeof(panels)/sizeof(panels[0]))activePanel=0;
+  const Panel &panel=panels[activePanel];
+  lcdBus.begin(14,12,13,15);
+  if(panel.st7789){
+    st.init(240,320,SPI_MODE3);st.setRotation(1);
+    // Adafruit rotation 1 uses RGB; the CYD2USB panel has BGR subpixels.
+    uint8_t landscapeBgr=ST77XX_MADCTL_MY|ST77XX_MADCTL_MV|0x08;
+    st.sendCommand(ST77XX_MADCTL,&landscapeBgr,1);lcd=&st;
+  }else{ili.begin(40000000);ili.setRotation(1);lcd=&ili;}
+  lcd->invertDisplay(panel.invert);lcd->setTextWrap(false);lcd->fillScreen(base);digitalWrite(21,HIGH);
   pinMode(tCs,OUTPUT);digitalWrite(tCs,HIGH);pinMode(tClk,OUTPUT);digitalWrite(tClk,LOW);
   pinMode(tDin,OUTPUT);pinMode(tDout,INPUT);pinMode(tIrq,INPUT);pinMode(0,INPUT_PULLUP);
-  Preferences p;p.begin("ghostdesk",true);
-  if(p.getBytesLength("touch")==sizeof(cal)&&p.getBytes("touch",&cal,sizeof(cal))==sizeof(cal)){Point test;if(mapTouch(cal.raw[0],test))step=4;}
+  if(p.getBytesLength(touchKey())==sizeof(cal)&&p.getBytes(touchKey(),&cal,sizeof(cal))==sizeof(cal)){Point test;if(mapTouch(cal.raw[0],test))step=4;}
   p.end();
 }
 void displayLoop(){

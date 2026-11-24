@@ -26,7 +26,7 @@ function Get-Flasher {
     return $exe.FullName
 }
 function Flash-Board([string]$portName) {
-    $firmware=Join-Path $PSScriptRoot 'GhostDesk-CYD-ILI9341.bin'
+    $firmware=Join-Path $PSScriptRoot 'GhostDesk-CYD-2USB.bin'
     $expected=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'firmware.sha256') -Raw).Trim().Split(' ')[0]
     if((Get-FileHash -LiteralPath $firmware -Algorithm SHA256).Hash -ne $expected){throw 'Firmware checksum mismatch. Extract the board kit again.'}
     $exe=Get-Flasher
@@ -39,9 +39,13 @@ function Flash-Board([string]$portName) {
     $file=Join-Path $backups ("before-GhostDesk-"+(Get-Date -Format yyyyMMdd-HHmmss)+"-$portName.bin")
     if(Test-Path -LiteralPath $file){throw 'Backup already exists.'}
     Write-Host "Saving the original 4 MB flash to $file"
-    & $exe --chip esp32 --port $portName --baud 460800 read_flash 0x0 0x400000 $file
+    & $exe --chip esp32 --port $portName --baud 460800 --after no_reset read_flash 0x0 0x400000 $file
     if($LASTEXITCODE -ne 0 -or (Get-Item -LiteralPath $file).Length -ne 4194304){throw 'Backup failed. Flashing stopped.'}
-    if((Read-Host "To replace the firmware on the single-micro-USB ESP32-2432S028R, type FLASH $portName") -cne "FLASH $portName"){throw 'Flash canceled. Original firmware is still on the board.'}
+    & $exe --chip esp32 --port $portName --baud 460800 verify_flash 0x0 $file
+    if($LASTEXITCODE -ne 0){throw 'The backup did not verify against the board. Flashing stopped.'}
+    $hash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText("$file.sha256",$hash+'  '+[IO.Path]::GetFileName($file))
+    if((Read-Host "Backup verified. To replace the firmware on the 2.8-inch CYD, type FLASH $portName") -cne "FLASH $portName"){throw 'Flash canceled. Original firmware is still on the board.'}
     & $exe --chip esp32 --port $portName --baud 460800 write_flash 0x0 $firmware
     if($LASTEXITCODE -ne 0){throw 'Flash failed. Keep the board connected and retry. Your backup is in board-backups.'}
     Start-Sleep -Seconds 2
@@ -73,7 +77,35 @@ function Save-Link($board,[string]$key) {
         if([IO.File]::Exists($file)){[IO.File]::Replace($stage,$file,[NullString]::Value)}else{[IO.File]::Move($stage,$file)}
     }finally{if([IO.File]::Exists($stage)){[IO.File]::Delete($stage)}}
 }
-function Pair-Board([string]$portName) {
+function Read-Panel($serial) {
+    $serial.WriteLine('PANEL?')
+    $until=[datetime]::UtcNow.AddMilliseconds(900)
+    while([datetime]::UtcNow -lt $until){
+        try{$line=$serial.ReadLine().Trim()}catch [TimeoutException]{continue}
+        if($line -match '^GHOST PANEL (ST7789|ILI9341)(-inverted)?$'){return $line.Substring(12)}
+        if($line -like 'GHOST ERROR *'){throw $line}
+    }
+}
+function Select-Panel($serial) {
+    $active=Read-Panel $serial
+    if(!$active){throw 'This firmware did not report a display profile. Use option 1 with the updated kit first.'}
+    $names=@('ST7789','ILI9341','ST7789-inverted','ILI9341-inverted')
+    while($true){
+        Write-Host "Current display profile: $active. Look for readable text on a dark background."
+        Write-Host '1. ST7789 (dual-USB default)   2. ILI9341'
+        Write-Host '3. ST7789 inverted            4. ILI9341 inverted'
+        $choice=Read-Host 'Press Enter to keep this display, or choose a profile to try'
+        if(!$choice){return}
+        if($choice -notmatch '^[1-4]$'){continue}
+        $requested=$names[[int]$choice-1]
+        $serial.WriteLine("PANEL $requested")
+        Start-Sleep -Milliseconds 1000
+        $until=[datetime]::UtcNow.AddSeconds(10)
+        do{$active=Read-Panel $serial}while($active -ne $requested -and [datetime]::UtcNow -lt $until)
+        if($active -ne $requested){throw 'The board did not confirm the selected profile. Tap RESET and retry option 3.'}
+    }
+}
+function Pair-Board([string]$portName,[switch]$CheckDisplay,[switch]$DisplayOnly) {
     $serial=New-Object IO.Ports.SerialPort($portName,115200,'None',8,'One')
     $serial.DtrEnable=$false;$serial.RtsEnable=$false;$serial.ReadTimeout=250;$serial.WriteTimeout=3000
     $serial.Encoding=New-Object Text.UTF8Encoding($false)
@@ -82,6 +114,8 @@ function Pair-Board([string]$portName) {
         $until=[datetime]::UtcNow.AddSeconds(12)
         do{$board=Get-Board $serial}while(!$board -and [datetime]::UtcNow -lt $until)
         if(!$board){throw 'Ghost Desk firmware did not answer on this port. Check the port, tap RESET, or run Flash and pair.'}
+        if($CheckDisplay -or $DisplayOnly){Select-Panel $serial}
+        if($DisplayOnly){return}
         $ssidDefault=''
         $ssidLine=netsh wlan show interfaces 2>$null | Select-String '^\s*SSID\s*:\s*(.+?)\s*$' | Select-Object -First 1
         if($ssidLine){$ssidDefault=$ssidLine.Matches[0].Groups[1].Value}
@@ -106,11 +140,12 @@ function Pair-Board([string]$portName) {
         Write-Host "USB pairing complete. Board address: $($board.ip)"
     }finally{$serial.Dispose()}
 }
-Write-Host 'Ghost Desk | DIYmalls ESP32-2432S028R, single micro-USB, ILI9341'
+Write-Host 'Ghost Desk | 2.8-inch ESP32-2432S028 CYD, dual USB, ST7789 / ILI9341'
 Write-Host '1. Back up, flash and pair (first setup)'
 Write-Host '2. Pair only (already flashed or changing Wi-Fi)'
-$mode=Read-Host 'Choose 1 or 2'
-if($mode -notin '1','2'){throw 'Setup canceled.'}
+Write-Host '3. Adjust display only (USB; keeps Wi-Fi pairing)'
+$mode=Read-Host 'Choose 1, 2 or 3'
+if($mode -notin '1','2','3'){throw 'Setup canceled.'}
 $ports=@([IO.Ports.SerialPort]::GetPortNames()|Sort-Object)
 if(!$ports.Count){throw 'No serial ports found. Plug in the board using a USB data cable.'}
 Write-Host ('Available ports: '+($ports -join ', '))
@@ -118,7 +153,8 @@ Get-CimInstance Win32_PnPEntity -Filter "PNPClass='Ports'" -ErrorAction Silently
 $portName=(Read-Host 'Port that appeared when you plugged in the board (for example COM5)').Trim().ToUpperInvariant()
 if($portName -notin $ports){throw 'Select a port in the list.'}
 if($mode -eq '1'){Flash-Board $portName}
-Pair-Board $portName
+Pair-Board $portName -CheckDisplay:($mode -eq '1') -DisplayOnly:($mode -eq '3')
+if($mode -eq '3'){return}
 try{$app=Invoke-RestMethod "$base/v1/board" -TimeoutSec 2}catch{$app=$null}
 if(!$app){
     try{$old=Invoke-RestMethod "$base/v1/sessions" -TimeoutSec 2}catch{$old=$null}

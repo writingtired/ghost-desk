@@ -14,6 +14,18 @@ try {
     $serial|Add-Member ScriptMethod ReadLine {return 'GHOST1 ghostdesk-ffeeddccbbaa 192.0.2.1 1234567812345678'}
     $result=Get-Board $serial
     if($serial.sent -ne 'GHOST?' -or $result.ip -ne '192.0.2.1'){throw 'USB discovery failed'}
+    $panelPort=[pscustomobject]@{profile='ST7789';log=[Collections.Generic.List[string]]::new()}
+    $panelPort|Add-Member ScriptMethod WriteLine {param($line)
+        $this.log.Add($line)
+        if($line.StartsWith('PANEL ')){$this.profile=$line.Substring(6)}
+    }
+    $panelPort|Add-Member ScriptMethod ReadLine {return 'GHOST PANEL '+$this.profile}
+    $choices=[Collections.Generic.Queue[string]]::new()
+    foreach($choice in '2','4','3','1',''){$choices.Enqueue($choice)}
+    function Read-Host($Prompt){return $choices.Dequeue()}
+    Select-Panel $panelPort
+    $sequence='PANEL?,PANEL ILI9341,PANEL?,PANEL ILI9341-inverted,PANEL?,PANEL ST7789-inverted,PANEL?,PANEL ST7789,PANEL?'
+    if(($panelPort.log -join ',') -ne $sequence){throw 'Panel change and readback sequence failed'}
     1..2|ForEach-Object{
         $key=New-Hex 32
         if($key -notmatch '^[a-f0-9]{64}$'){throw 'Unexpected key shape'}

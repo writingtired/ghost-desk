@@ -23,4 +23,5 @@ extern QueueHandle_t views,queries;
 extern volatile bool pcOnline;
 void networkLoop(void*);
 void displaySetup();
+bool panelCommand(const String &line);
 void displayLoop();

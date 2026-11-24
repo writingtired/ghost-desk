@@ -8,7 +8,7 @@ Run these commands from the repository root in PowerShell. They install the buil
 $index='https://espressif.github.io/arduino-esp32/package_esp32_index.json'
 arduino-cli core update-index --additional-urls $index
 arduino-cli core install esp32:esp32@2.0.17 --additional-urls $index
-arduino-cli lib install 'Adafruit ILI9341@1.6.2' 'Adafruit GFX Library@1.11.11' 'Adafruit BusIO@1.17.0' 'ArduinoJson@6.21.5' --no-deps
+arduino-cli lib install 'Adafruit ILI9341@1.6.2' 'Adafruit ST7735 and ST7789 Library@1.11.0' 'Adafruit GFX Library@1.11.11' 'Adafruit BusIO@1.17.0' 'ArduinoJson@6.21.5' --no-deps
 .\hardware\build-board.ps1
 ```
 
