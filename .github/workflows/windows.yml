@@ -22,6 +22,11 @@ jobs:
       - name: Test dock placement
         shell: pwsh
         run: ./tests/dock-placement.ps1
+      - name: Test board protocol
+        run: node tests/device-link.mjs
+      - name: Test Windows board pairing
+        shell: powershell
+        run: ./tests/board-setup.ps1
       - name: Build portable ZIP
         shell: pwsh
         run: ./package.ps1

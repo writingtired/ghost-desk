@@ -81,7 +81,7 @@ The PC owns provider integration, chat lookup, and window activation. Both deskt
 
 - POST /v1/chat accepts id, op and value for pin or mute. A review acknowledgment includes the stateSince of the observed completion. The bridge checks the local origin and the current chat before applying changes.
 
-For the first hardware version, add a USB serial transport to the bridge. Send a compact, paged snapshot on connect or reconnect, then changes keyed by id. The board can render a small ghost sprite, use the same state labels, and send a focus request with the touched ID. A Wi-Fi version can use an authenticated device endpoint. The starter exposes only loopback HTTP and checks origins on writes. Device transport, pairing, board-specific graphics, and firmware are future work.
+The physical ESP32-2432S028R display pairs over USB and uses a dedicated TLS 1.2 PSK connection over Wi-Fi. The PC initiates the connection to port 43822 on the board. Each poll carries up to four chat rows and a tap opens a current chat through the desktop focus handler. The PC's HTTP API stays on loopback. The kit includes a complete flash image and a Windows setup utility. [Board setup guide](<hardware/START HERE.md>) · [Firmware build instructions](hardware/BUILD.md)
 
 ## References
 

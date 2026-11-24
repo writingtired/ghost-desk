@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import {createActivity} from './activity.mjs';
+import {startDeviceLink} from './device-link.mjs';
 import {randomUUID} from 'node:crypto';
 import {execFile,spawn} from 'node:child_process';
 import {once} from 'node:events';
@@ -22,6 +23,7 @@ const providers = new Set(['Claude','Gemini','ChatGPT']);
 const clients = new Map(), tickets = new Map();
 const dataDir=process.env.GHOST_DESK_DATA || path.join(process.env.LOCALAPPDATA||os.homedir(),'Ghost Desk');
 const activity=createActivity(path.join(dataDir,'activity-'+port+'.json'));
+let boardConnected=false;
 const files = new Map([['/',['index.html','text/html']],['/panel.css',['panel.css','text/css']],['/panel.js',['panel.js','text/javascript']],['/esp32',['display.html','text/html']],['/display.js',['display.js','text/javascript']],['/sprites.json',['sprites.json','application/json']],['/sprites.js',['sprites.js','text/javascript']]]);
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 
@@ -100,6 +102,14 @@ async function focus(session) {
     tickets.set(token,{client,key,finish});
   });
 }
+async function openSession(id) {
+  const session=snapshot().sessions.find(s=>s.id===id);
+  const result=session?await focus(session):false;
+  if(result && (result===true || result.target==='session') && session.review) {
+    snapshot();activity.action(id,'review',false,session.stateSince);
+  }
+  return result;
+}
 const server = http.createServer(async(req,res)=>{
   const reply = (code,data,mime='application/json')=>{
     res.writeHead(code,{'Content-Type':mime+'; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
@@ -114,6 +124,7 @@ const server = http.createServer(async(req,res)=>{
       return reply(200,fs.readFileSync(new URL('./'+file,import.meta.url)),mime);
     }
     if (req.method==='GET' && url==='/v1/sessions') return reply(200,snapshot());
+    if (req.method==='GET' && url==='/v1/board') return reply(200,{version:1,connected:boardConnected});
     if (req.method==='POST' && req.headers['content-type']?.startsWith('application/json')) {
       if (url==='/v1/dock' && req.headers.origin===origin) {
         await openDock();
@@ -128,11 +139,7 @@ const server = http.createServer(async(req,res)=>{
       }
       if (url==='/v1/focus' && req.headers.origin===origin) {
         const {id}=await body(req);
-        const session=snapshot().sessions.find(s=>s.id===id);
-        const result=session?await focus(session):false;
-        if(result && (result===true || result.target==='session') && session.review) {
-          snapshot();activity.action(id,'review',false,session.stateSince);
-        }
+        const result=await openSession(id);
         return reply(result?200:409,typeof result==='object'?result:{ok:result});
       }
     }
@@ -149,6 +156,10 @@ server.on('error',async e=>{
   console.error(e.code==='EADDRINUSE'?'Port '+port+' is already in use.':e.message);process.exitCode=1;
 });
 server.listen(port,'127.0.0.1',async()=>{
+  if(port===43821) {
+    const stop=startDeviceLink({dir:dataDir,sessions:()=>snapshot().sessions,focus:openSession,status:connected=>{boardConnected=connected;}});
+    server.once('close',stop);
+  }
   if(process.argv.includes('--managed')) {
     process.stdin.once('end',()=>process.exit(0));
     process.stdin.resume();
