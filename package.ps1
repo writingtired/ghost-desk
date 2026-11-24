@@ -25,9 +25,17 @@ try {
     foreach($file in 'manifest.json','worker.js','observe.js') {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "browser/$file") -Destination $browser
     }
-    foreach($file in 'README.md','Ghost Desk preview.png') {
+    foreach($file in 'LICENSE','README.md','RELEASE.md','Ghost Desk preview.png','Ghost Desk demo.gif') {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $bundle
     }
+    # The repository download links point at GitHub. Offline readers already have the app.
+    $readme=Join-Path $bundle 'README.md'
+    $copy=[IO.File]::ReadAllText($readme)
+    $copy=[regex]::Replace($copy,'(?m)^\*\*\[Download for Windows\].*\r?\n','')
+    $copy=[regex]::Replace($copy,'(?m)^Already paired\? Download the .*\r?$','Already paired? Open **Update display…** in Ghost Desk and select the .ota.bin from the release.')
+    [IO.File]::WriteAllText($readme,$copy)
+    $guides=[IO.Directory]::CreateDirectory((Join-Path $bundle 'hardware')).FullName
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'hardware/START HERE.md'),(Join-Path $PSScriptRoot 'hardware/BUILD.md'),(Join-Path $PSScriptRoot 'hardware/DEPENDENCIES.md') -Destination $guides
     $source=[IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $RuntimeZip).Path)
     try {
         foreach($file in 'node.exe','LICENSE') {

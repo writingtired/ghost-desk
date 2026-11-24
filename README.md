@@ -4,6 +4,16 @@ A Windows edge dock for local Codex, Claude Code in Claude Desktop, and Google A
 
 ![Ghost Desk collapsed and expanded on Windows alongside a photo of the mounted ESP32](<Ghost Desk preview.png>)
 
+**[Download for Windows](../../releases/download/v0.1.0/Ghost-Desk-Windows-x64.zip)** · **[Set up an ESP32 display](../../releases/download/v0.1.0/Ghost-Desk-Wireless-Update-Kit.zip)**
+
+The Windows dock works on its own. Extract the entire Windows ZIP to a permanent folder and open **Ghost Desk.exe**. The optional board kit includes the Windows app, first-time USB setup and firmware for the supported 2.8-inch dual-USB display. [Board setup guide](<hardware/START HERE.md>)
+
+Already paired? Download the [wireless firmware](../../releases/download/v0.1.0/GhostDesk-CYD-2USB.ota.bin) and select it under **Update display…** in Ghost Desk.
+
+![A working ghost becomes ready for review, flashes into floating eyes, and a simulated board tap opens the sample conversation](<Ghost Desk demo.gif>)
+
+The demo uses a sample conversation, the native Windows dock and a simulated touchscreen tap through the paired-board protocol.
+
 ## Open the panel
 
 1. On 64-bit Windows 10 or 11 with .NET Framework 4.8, extract **Ghost-Desk-Windows-x64.zip**. Open **Ghost Desk.exe** inside the extracted folder. A narrow ghost tab appears at the center of the right screen edge on first launch. The app starts its local bridge in the background.
@@ -14,6 +24,10 @@ A Windows edge dock for local Codex, Claude Code in Claude Desktop, and Google A
 You can also open the running panel at **http://127.0.0.1:43821**. Choose **Float ↗** for the browser floating panel or **Preview** for sample chats. The Windows app runs in your signed-in desktop session and listens only on the loopback address. It starts when you launch it.
 
 ## Review and navigation
+
+Right-click the Windows tray ghost and select **Connections & display settings** to check provider detection, the last recorded contact with your paired board and both release versions. **Copy diagnostics** includes only these status fields. **Start with Windows** is an opt-in tray toggle for the current Windows user. Turn it on again from the new copy if you move the portable folder.
+
+With v0.1.0 firmware, the same dialog controls rotation, brightness (10–100%) and review flashing (off, tile only, or entire row). Click **Apply to board**. The display saves the settings and reports them back. Rotation also updates touch mapping.
 
 The header prioritizes chats that need input, then chats ready for review, then working chats. A dot marks work, a diamond marks review and an exclamation mark signals input. Provider colors are strongest behind each ghost. On reconnect, the paired board briefly shows **Connected** in its header.
 
@@ -91,7 +105,11 @@ The physical ESP32-2432S028R display pairs over USB and uses a dedicated TLS 1.2
 
 Use **… → Update display…** or the Ghost Desk tray menu to install a new **.ota.bin** on the paired display over Wi-Fi. The updater shows progress and confirms the firmware after the display reconnects. For a board running the original dual-USB Ghost Desk release, run option 4 in the Windows board kit once over USB.
 
-## References
+## License
 
+Ghost Desk's original software is distributed under the [MIT License](LICENSE). Bundled libraries and the Node.js runtime retain their respective licenses. See the board kit's notices and [firmware dependency list](hardware/DEPENDENCIES.md).
+
+
+## References
 
 [Codex chat deep links](https://learn.chatgpt.com/docs/reference/commands) · [Chrome document picture-in-picture](https://developer.chrome.com/docs/web-platform/document-picture-in-picture) · [Chrome tabs API](https://developer.chrome.com/docs/extensions/reference/api/tabs) · [Claude Code lifecycle hooks](https://code.claude.com/docs/en/hooks) · [Gemini CLI lifecycle hooks](https://geminicli.com/docs/hooks/reference/)

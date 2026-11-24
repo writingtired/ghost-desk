@@ -126,6 +126,15 @@ const server = http.createServer(async(req,res)=>{
     }
     if (req.method==='GET' && url==='/v1/sessions') return reply(200,snapshot());
     if (req.method==='GET' && url==='/v1/board') return reply(200,{version:1,...boardUpdater.info()});
+    if (req.method==='GET' && url==='/v1/diagnostics'){
+      const {sources}=snapshot(),{connected,lastSeen,firmware,build}=boardUpdater.info();
+      return reply(200,{desktop:'0.1.0',codex:sources.codex,claude:sources.claudeDesktop,antigravity:sources.antigravity,
+        browser:sources.browser,connected,lastSeen,firmware:firmware||(build?'Build '+build.slice(0,12):'Unknown')});
+    }
+    if(req.method==='POST'&&url==='/v1/board/settings'&&req.headers.origin===origin&&req.headers['content-type']?.startsWith('application/json')){
+      try{return reply(200,await boardUpdater.setScreen(await body(req)));}
+      catch(e){return reply(409,{error:e.message});}
+    }
     if (req.method==='POST' && url==='/v1/board/update' && req.headers.origin===origin &&
         req.headers['content-type']==='application/octet-stream') {
       if(Number(req.headers['content-length'])>maxImageSize)return reply(413,{error:'Firmware exceeds the display slot size.'});

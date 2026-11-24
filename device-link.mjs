@@ -27,12 +27,25 @@ export function boardPage(sessions,all,page) {
 // Windows initiates the connection. Only the paired board and PC possess this TLS key.
 export function startDeviceLink({dir,sessions,focus,status=()=>{},updater=createBoardUpdater(),port=43822,interval=2800}) {
   const file=path.join(dir,'board-v1.json');
+  const history=path.join(dir,'board-contact.json');
+  let savedAt=0;
+  function saveContact(name,force=false){
+    const {lastSeen,firmware,build}=updater.info();
+    if(!lastSeen||lastSeen===savedAt||(!force&&lastSeen-savedAt<60000))return;
+    try{
+      fs.writeFileSync(history+'.tmp',JSON.stringify({name,lastSeen,firmware,build}));
+      fs.renameSync(history+'.tmp',history);savedAt=lastSeen;
+    }catch{/* Read-only profiles can still use in-memory diagnostics. */}
+  }
   let socket=null,lastConfig='',attempt=0,closed=false;
   function connect() {
     if(closed)return;
     let config,raw='';
     try {raw=fs.readFileSync(file,'utf8').replace(/^\uFEFF/,'');config=JSON.parse(raw);}catch{}
-    if(raw!==lastConfig){socket?.destroy();socket=null;updater.reset();status(false);attempt=0;lastConfig=raw;}
+    if(raw!==lastConfig){
+      socket?.destroy();socket=null;updater.reset();status(false);attempt=0;lastConfig=raw;savedAt=0;
+      try{const saved=JSON.parse(fs.readFileSync(history,'utf8'));if(saved.name===config?.name)updater.restoreContact(saved);}catch{}
+    }
     if(socket||!config||!/^ghostdesk-[a-f0-9]{12}$/.test(config.name)||net.isIP(config.ip)!==4||!/^[0-9a-f]{64}$/.test(config.key))return;
     const host=[config.ip,config.name+'.local'][attempt++%2];
     const client=tls.connect({host,port,family:4,minVersion:'TLSv1.2',maxVersion:'TLSv1.2',ciphers:'PSK-AES128-GCM-SHA256',
@@ -44,7 +57,7 @@ export function startDeviceLink({dir,sessions,focus,status=()=>{},updater=create
     client.once('secureConnect',()=>{clearTimeout(deadline);client.setNoDelay(true);client.setTimeout(25000);});
     client.on('timeout',()=>client.destroy());
     client.on('error',()=>{});
-    client.on('close',()=>{clearTimeout(deadline);if(socket===client){socket=null;updater.disconnect();status(false);}});
+    client.on('close',()=>{clearTimeout(deadline);if(socket===client){socket=null;saveContact(config.name,true);updater.disconnect();status(false);}});
     client.setEncoding('utf8');
     client.on('data',async chunk=>{
       buffer+=chunk;
@@ -67,10 +80,11 @@ export function startDeviceLink({dir,sessions,focus,status=()=>{},updater=create
         }
         if(client.destroyed||socket!==client)return;
         const install=updater.poll(req);
+        saveContact(config.name);
         if(install){client.write(JSON.stringify(install)+'\n');return;}
         const view=boardPage(sessions(),req.all,req.page);
         visible=new Set(view.items.map(s=>s.id));
-        if(!client.destroyed){client.write(JSON.stringify({...view,msg})+'\n');status(true);}
+        if(!client.destroyed){client.write(JSON.stringify({...view,msg,screen:updater.screenCommand()})+'\n');status(true);}
       }catch{client.destroy();}finally{busy=false;}
     });
   }

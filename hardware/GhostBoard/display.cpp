@@ -14,6 +14,7 @@ struct Panel {const char *name;bool st7789,invert;};
 static const Panel panels[]={{"ST7789",true,false},{"ILI9341",false,false},
                              {"ST7789-inverted",true,true},{"ILI9341-inverted",false,true}};
 static uint8_t activePanel=0;
+static ScreenSettings screen={1,100,2};
 static const char *touchKey(){return panels[activePanel].st7789?"touch-st":"touch";}
 bool panelCommand(const String &line){
   if(line=="PANEL?"){Serial.printf("GHOST PANEL %s\n",panels[activePanel].name);return true;}
@@ -39,7 +40,7 @@ struct Calibration {Point raw[3];};
 static Calibration cal={};
 static const Point targets[]={{24,24},{295,24},{24,215},{160,120}};
 // Calibration records stay in the original landscape coordinate system.
-static Point mountedPoint(Point p){return {319-p.x,239-p.y};}
+static Point mountedPoint(Point p){return screen.rotated?Point{319-p.x,239-p.y}:p;}
 static int step=0;
 static View view={};
 static bool dirty=true,held=false,pending=false;
@@ -74,7 +75,7 @@ static void colors(const char *provider,uint16_t &badge,uint16_t &wash){
 }
 static bool flashed[4]={};
 static bool reviewFlash(const ChatRow &r){
-  if(!r.reviewSince||!view.serverNow)return false;
+  if(!screen.flash||!r.reviewSince||!view.serverNow)return false;
   uint64_t now=view.serverNow+uint32_t(millis()-view.receivedMs);
   if(now<r.reviewSince)return false;
   uint64_t age=now-r.reviewSince;
@@ -94,7 +95,8 @@ static void ghost(int row,bool frame,bool eaten=false){
 static void drawRow(int i,bool flash){
     const ChatRow &r=view.rows[i];int y=27+i*43;uint16_t badge,wash;colors(r.provider,badge,wash);
     flashed[i]=flash;
-    lcd->fillRect(0,y,320,42,flash?uint16_t(~wash):wash);ghost(i,false,flash);
+    bool eyes=flash;flash=flash && screen.flash==2;
+    lcd->fillRect(0,y,320,42,flash?uint16_t(~wash):wash);ghost(i,false,eyes);
     int titleSize=strlen(r.title)<=14?2:1;
     text(45,y+(titleSize==2?4:8),r.title,titleSize,flash?base:white,titleSize==2?14:28);
     char detail[90];snprintf(detail,sizeof(detail),"%s%s / %s",r.pin?"* ":"",r.provider,r.context);
@@ -182,26 +184,46 @@ static void paint(int mode){
   text(16,184,hostName,1,muted,32);
   if(mode==4)text(16,203,WiFi.localIP().toString().c_str(),1,muted,24);
 }
+static void orientDisplay(){
+  lcd->setRotation(screen.rotated?3:1);
+  if(panels[activePanel].st7789){
+    uint8_t mode=(screen.rotated?ST77XX_MADCTL_MX:ST77XX_MADCTL_MY)|ST77XX_MADCTL_MV|0x08;
+    st.sendCommand(ST77XX_MADCTL,&mode,1);
+  }
+}
 void displaySetup(){
   pinMode(21,OUTPUT);digitalWrite(21,LOW);
   Preferences p;p.begin("ghostdesk",true);
   activePanel=p.getUChar("panel",0);
   if(activePanel>=sizeof(panels)/sizeof(panels[0]))activePanel=0;
   const Panel &panel=panels[activePanel];
+  ScreenSettings saved;
+  if(p.getBytesLength("screen")==sizeof(saved)&&p.getBytes("screen",&saved,sizeof(saved))==sizeof(saved)&&
+      saved.rotated<=1&&saved.brightness>=10&&saved.brightness<=100&&saved.flash<=2)screen=saved;
   lcdBus.begin(14,12,13,15);
   if(panel.st7789){
-    st.init(240,320,SPI_MODE3);st.setRotation(3);
-    // Preserve the CYD2USB panel's BGR subpixel order in rotated landscape.
-    uint8_t landscapeBgr=ST77XX_MADCTL_MX|ST77XX_MADCTL_MV|0x08;
-    st.sendCommand(ST77XX_MADCTL,&landscapeBgr,1);lcd=&st;
-  }else{ili.begin(40000000);ili.setRotation(3);lcd=&ili;}
-  lcd->invertDisplay(panel.invert);lcd->setTextWrap(false);lcd->fillScreen(base);digitalWrite(21,HIGH);
+    st.init(240,320,SPI_MODE3);lcd=&st;
+  }else{ili.begin(40000000);lcd=&ili;}
+  orientDisplay();lcd->invertDisplay(panel.invert);lcd->setTextWrap(false);lcd->fillScreen(base);
+  ledcSetup(0,5000,8);ledcAttachPin(21,0);ledcWrite(0,screen.brightness*255/100);
+  xQueueOverwrite(screenReports,&screen);
   pinMode(tCs,OUTPUT);digitalWrite(tCs,HIGH);pinMode(tClk,OUTPUT);digitalWrite(tClk,LOW);
   pinMode(tDin,OUTPUT);pinMode(tDout,INPUT);pinMode(tIrq,INPUT);pinMode(0,INPUT_PULLUP);
   if(p.getBytesLength(touchKey())==sizeof(cal)&&p.getBytes(touchKey(),&cal,sizeof(cal))==sizeof(cal)){Point test;if(mapTouch(cal.raw[0],test))step=4;}
   p.end();
 }
 void displayLoop(){
+  ScreenSettings change;
+  if(xQueueReceive(screenRequests,&change,0)==pdTRUE && memcmp(&change,&screen,sizeof(screen))){
+    Preferences prefs;
+    bool saved=prefs.begin("ghostdesk",false)&&prefs.putBytes("screen",&change,sizeof(change))==sizeof(change);
+    prefs.end();
+    if(saved){
+      bool rotate=change.rotated!=screen.rotated;screen=change;
+      if(rotate){orientDisplay();held=false;downControl=-1;if(!calibrated())step=0;}
+      ledcWrite(0,screen.brightness*255/100);dirty=true;xQueueOverwrite(screenReports,&screen);
+    }
+  }
   static int shownUpdate=-1;
   int percent=updatePercent;
   if(percent>=0){

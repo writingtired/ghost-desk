@@ -20,6 +20,8 @@ struct View {
   uint32_t receivedMs;
 };
 struct Query {int page;bool all;char open[100];};
+struct ScreenSettings {uint8_t rotated,brightness,flash;};
+extern QueueHandle_t screenRequests,screenReports;
 extern Credentials cfg;
 extern char hostName[24];
 extern QueueHandle_t views,queries;

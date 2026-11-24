@@ -10,6 +10,7 @@ using Microsoft.Win32;
 
 namespace GhostDesk {
     sealed class BoardUpdateState {
+        public ScreenSettings screen {get;set;}
         public bool connected { get; set; }
         public bool capable { get; set; }
         public string phase { get; set; }

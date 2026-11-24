@@ -30,6 +30,9 @@ jobs:
       - name: Build portable ZIP
         shell: pwsh
         run: ./package.ps1
+      - name: First launch on a clean Windows runner
+        shell: powershell
+        run: ./tests/portable.ps1 -Zip ./dist/Ghost-Desk-Windows-x64.zip
       - uses: actions/upload-artifact@v4
         with:
           name: Ghost-Desk-Windows-x64

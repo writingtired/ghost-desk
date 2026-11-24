@@ -5,6 +5,7 @@
 Credentials cfg={};
 char hostName[24];
 QueueHandle_t views,queries;
+QueueHandle_t screenRequests,screenReports;
 volatile bool pcOnline=false;
 static String line;
 static bool dropping=false;
@@ -43,6 +44,7 @@ void setup() {
   if(prefs.getBytesLength("network")==sizeof(cfg))prefs.getBytes("network",&cfg,sizeof(cfg));
   prefs.end();
   views=xQueueCreate(1,sizeof(View));queries=xQueueCreate(1,sizeof(Query));
+  screenRequests=xQueueCreate(1,sizeof(ScreenSettings));screenReports=xQueueCreate(1,sizeof(ScreenSettings));
   displaySetup();
   if(cfg.ssid[0]){
     WiFi.persistent(false);WiFi.mode(WIFI_STA);WiFi.setHostname(hostName);WiFi.setAutoReconnect(true);

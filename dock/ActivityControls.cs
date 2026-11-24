@@ -122,6 +122,8 @@ namespace GhostDesk {
             update.Click+=(s,e)=>ShowDisplayUpdater();menu.Items.Add(update);
             if(!managed)return;
             var keys=new MenuItem{Header="Jump to oldest wait"};
+            var connectionsItem=new MenuItem{Header="Connections & display settings"};
+            connectionsItem.Click+=(s,e)=>ShowConnections();menu.Items.Add(connectionsItem);
             for(int i=0;i<ShortcutNames.Length;i++){
                 int pick=i;var option=new MenuItem{Header=ShortcutNames[i],IsChecked=i==0?!registered:registered&&i==shortcut};
                 option.Click+=(s,e)=>{

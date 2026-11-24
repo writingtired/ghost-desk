@@ -43,6 +43,14 @@ namespace GhostDesk {
                     throw new InvalidOperationException("The local bridge could not start on port "+port+". Close any earlier Ghost Desk bridge and try again.");
                 icon=Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
                 menu.Items.Add("Open Ghost Desk",null,(s,e)=>window.Reveal());
+                menu.Items.Add("Connections & display settings",null,(s,e)=>window.ShowConnections());
+                var startup=new Forms.ToolStripMenuItem("Start with Windows");
+                startup.Click+=(s,e)=>{
+                    try{LoginStartup.Set(!LoginStartup.Enabled());startup.Checked=LoginStartup.Enabled();}
+                    catch(Exception){MessageBox.Show("Windows could not save the sign-in preference.","Ghost Desk");}
+                };
+                menu.Opening+=(s,e)=>{try{startup.Checked=LoginStartup.Enabled();startup.Enabled=true;}catch(Exception){startup.Enabled=false;}};
+                menu.Items.Add(startup);
                 menu.Items.Add("Update display…",null,(s,e)=>window.ShowDisplayUpdater());
                 menu.Items.Add("Quit Ghost Desk",null,(s,e)=>window.Close());
                 tray.Icon=icon; tray.Text="Ghost Desk"; tray.ContextMenuStrip=menu;

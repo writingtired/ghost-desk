@@ -56,6 +56,17 @@ try {
   assert.equal((await request({})).total,0);
   assert.throws(()=>updater.queue(firmware),/USB/);
   const poll={target,build:originalBuild};
+  await assert.rejects(updater.setScreen({rotated:true,brightness:80,flash:1}),/Connect/);
+  const screen={rotated:true,brightness:100,flash:2},change={rotated:false,brightness:65,flash:1};
+  await request({...poll,firmware:'0.1.0',screen});
+  assert.equal(updater.info().firmware,'0.1.0');
+  assert.ok(updater.info().lastSeen>0);
+  await assert.rejects(updater.setScreen({...screen,brightness:0}),/Invalid/);
+  const saved=updater.setScreen(change);
+  await assert.rejects(updater.setScreen(change),/progress/);
+  assert.deepEqual((await request({...poll,screen})).screen,change);
+  assert.equal((await request({...poll,screen:change})).screen,undefined);
+  assert.deepEqual(await saved,change);
   await request(poll);
   updater.queue(firmware);
   assert.throws(()=>updater.queue(firmware),/already in progress/);

@@ -21,6 +21,8 @@ The paired PC sends the application over the existing encrypted local Wi-Fi conn
 
 ## Using the display
 
+Open **Connections & display settings** in the Windows dock or tray menu. Choose **Rotate 180°**, **Brightness** and **Review flash intensity**, then click **Apply to board**. The board confirms and saves the settings over the paired link. Touch uses the selected orientation and existing calibration. Firmware v0.1.0 or later supports these controls.
+
 A **Ready to review** row briefly inverts and shows floating eyes. The signal repeats every five seconds for 30 seconds, then every two seconds. The desktop and board use the same completion time. Open the chat or use **Mark reviewed** in the desktop sidebar to acknowledge it. **Mute alerts** silences the flash on both displays.
 
 The board refreshes about every two seconds while connected. **Current** uses the dock's priorities, including pins, waits, work in progress and turns ready to review. Each page holds four chats. Use **Other chats** to include quiet conversations and **Current work** to fold them away, and **Prev / Next** to change pages. The view and page selection are independent on the board and PC.

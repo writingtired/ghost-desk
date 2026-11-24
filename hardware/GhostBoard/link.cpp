@@ -79,6 +79,12 @@ static bool installImage(mbedtls_ssl_context *ssl,Channel &c){
 static bool fetchPage(mbedtls_ssl_context *ssl,Channel &c,Query &q) {
   StaticJsonDocument<512> req;req["v"]=1;req["page"]=q.page;req["all"]=q.all;
   if(runningBuild[0]){req["target"]=target;req["build"]=runningBuild;}
+  ScreenSettings screen;
+  req["firmware"]="0.1.0";
+  if(xQueuePeek(screenReports,&screen,0)==pdTRUE){
+    JsonObject settings=req.createNestedObject("screen");
+    settings["rotated"]=bool(screen.rotated);settings["brightness"]=screen.brightness;settings["flash"]=screen.flash;
+  }
   if(q.open[0])req["open"]=q.open;
   char line[440];size_t len=serializeJson(req,line,sizeof(line)-1);line[len++]='\n';
   c.until=millis()+21000;
@@ -100,6 +106,14 @@ static bool fetchPage(mbedtls_ssl_context *ssl,Channel &c,Query &q) {
     updatePercent=-1;return false;
   }
   if(!pageDoc["items"].is<JsonArray>())return false;
+  JsonObject options=pageDoc["screen"].as<JsonObject>();
+  if(options["rotated"].is<bool>()&&options["brightness"].is<unsigned>()&&options["flash"].is<unsigned>()){
+    unsigned brightness=options["brightness"],flash=options["flash"];
+    if(brightness>=10&&brightness<=100&&flash<=2){
+      ScreenSettings change={uint8_t(options["rotated"].as<bool>()),uint8_t(brightness),uint8_t(flash)};
+      xQueueOverwrite(screenRequests,&change);
+    }
+  }
   View view={};view.page=pageDoc["page"];view.pages=pageDoc["pages"];view.all=pageDoc["all"];
   view.total=pageDoc["total"];view.quiet=pageDoc["quiet"];
   view.attention=pageDoc["attention"];view.working=pageDoc["working"];view.reviews=pageDoc["reviews"];
