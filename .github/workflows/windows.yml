@@ -17,6 +17,9 @@ jobs:
           node-version: '24.19.0'
       - name: Test desktop adapters
         run: node tests/desktop.mjs
+      - name: Test dock placement
+        shell: pwsh
+        run: ./tests/dock-placement.ps1
       - name: Build portable ZIP
         shell: pwsh
         run: ./package.ps1

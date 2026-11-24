@@ -5,8 +5,9 @@ A Windows edge dock for local Codex, Claude Code in Claude Desktop, and Google A
 ## Open the panel
 
 1. On 64-bit Windows 10 or 11 with .NET Framework 4.8, extract **Ghost-Desk-Windows-x64.zip**. Open **Ghost Desk.exe** inside the extracted folder. A narrow ghost tab appears at the center of the right screen edge on first launch. The app starts its local bridge in the background.
-2. Click the tab to expand it. Click a chat to open it. Select **Hide** or press **Esc** to collapse it. Working ghosts bob, attention ghosts shift sideways, and finished ghosts rest with closed eyes. The strip shows up to nine ghosts, with attention and working sessions first. A **+N** count covers additional chats.
-3. Open **···** or right-click the strip to choose an edge or display. **Hide to tray** hides the entire dock. Double-click the ghost in the Windows notification area to bring it back. **Quit Ghost Desk** closes the app and its bridge together.
+2. Drag the ghost strip to any monitor and release near its **top, bottom, left, or right** edge. The strip snaps to the nearest edge at the position where you drop it. Top and bottom use a horizontal strip. The dock stays inside the monitor's work area, clear of the taskbar, and remembers its monitor, edge, and position.
+3. Click the strip to expand it inward. Drag the **Ghost Desk** heading to move the expanded panel. Click a chat to open it. Choose **Hide** or press **Esc** to collapse it. Working ghosts bob, attention ghosts shift sideways, and finished ghosts rest with closed eyes. The strip shows up to nine ghosts, with attention and working sessions first. A **+N** count covers additional chats.
+4. Open **···** or right-click the strip to choose an edge or display from a menu. **Hide to tray** hides the entire dock. Double-click the ghost in the Windows notification area to bring it back. **Quit Ghost Desk** closes the app and its bridge together.
 
 You can also open the running panel at **http://127.0.0.1:43821**. Choose **Float ↗** for the browser floating panel or **Preview** for sample chats. The Windows app runs in your signed-in desktop session and listens only on the loopback address. It starts when you launch it.
 

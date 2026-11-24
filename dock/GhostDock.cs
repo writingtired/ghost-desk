@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -14,6 +15,7 @@ using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -40,6 +42,13 @@ namespace GhostDesk {
     static class Native {
         [DllImport("user32.dll")] internal static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int w, int h, uint flags);
         [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(System.Drawing.Point point,uint flags);
+        [DllImport("shcore.dll")] static extern int GetDpiForMonitor(IntPtr monitor,int type,out uint x,out uint y);
+        internal static double Scale(Screen target,IntPtr hwnd) {
+            uint x,y;
+            if(GetDpiForMonitor(MonitorFromPoint(target.Bounds.Location,2),0,out x,out y)==0 && x>0) return x/96.0;
+            return Math.Max(96,GetDpiForWindow(hwnd))/96.0;
+        }
     }
 
     sealed class Ghost : FrameworkElement {
@@ -115,7 +124,13 @@ namespace GhostDesk {
         readonly TextBlock count=Text("",12,Muted), notice=Text("",12,Amber);
         readonly string prefs;
         Screen screen;
-        bool left,expanded,busy,opening,closed,connected;
+        bool expanded,busy,opening,closed,connected;
+        DockEdge edge=DockEdge.Right;
+        string displayName;
+        double anchor=.5,grabX,grabY;
+        FrameworkElement pressed;
+        System.Drawing.Point pressPoint;
+        bool dragging;
         string signature=null;
         Chat[] chats=new Chat[0];
         double spread,from,to;
@@ -177,9 +192,15 @@ namespace GhostDesk {
             http=new HttpClient(new HttpClientHandler{UseProxy=false}) {BaseAddress=new Uri("http://127.0.0.1:"+port),Timeout=TimeSpan.FromSeconds(20)};
             prefs=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Ghost Desk","dock-"+port+".txt");
             screen=Screen.FromPoint(System.Windows.Forms.Cursor.Position);
+            displayName=screen.DeviceName;
             try {
                 var saved=File.ReadAllLines(prefs);
-                if(saved.Length==2) {left=saved[0]=="left";screen=Screen.AllScreens.FirstOrDefault(s=>s.DeviceName==saved[1])??screen;}
+                DockEdge savedEdge;
+                if(saved.Length>=2 && Enum.TryParse(saved[0],true,out savedEdge) && Enum.IsDefined(typeof(DockEdge),savedEdge)) {
+                    edge=savedEdge;displayName=saved[1];
+                    double fraction;
+                    if(saved.Length>=3 && double.TryParse(saved[2],NumberStyles.Float,CultureInfo.InvariantCulture,out fraction) && fraction>=0 && fraction<=1) anchor=fraction;
+                }
             } catch(IOException) {} catch(UnauthorizedAccessException) {}
             WindowStyle=WindowStyle.None; AllowsTransparency=true; Background=Brushes.Transparent;
             ResizeMode=ResizeMode.NoResize; Topmost=true; ShowInTaskbar=false; ShowActivated=false;
@@ -190,9 +211,14 @@ namespace GhostDesk {
             BuildDetail();
             surface.Children.Add(detail);surface.Children.Add(rail);detail.Visibility=Visibility.Collapsed;
             rail.Content=railItems;rail.ToolTip="Open Ghost Desk";rail.Click+=(s,e)=>Toggle(true);
+            EnableDrag(rail);
             rail.ContextMenuOpening+=(s,e)=>rail.ContextMenu=Menu();
             rail.ContextMenu=Menu();
-            KeyDown+=(s,e)=>{if(expanded && e.Key==System.Windows.Input.Key.Escape){Toggle(false);e.Handled=true;}};
+            PreviewKeyDown+=(s,e)=>{
+                if(e.Key!=Key.Escape)return;
+                if(pressed!=null) CancelDrag(); else if(expanded) Toggle(false); else return;
+                e.Handled=true;
+            };
             SourceInitialized+=(s,e)=>{hwnd=new WindowInteropHelper(this).Handle;Place();};
             Loaded+=async(s,e)=>{Draw();Place();poll.Start();await Poll();};
             poll.Interval=TimeSpan.FromMilliseconds(2100);poll.Tick+=async(s,e)=>await Poll();
@@ -213,7 +239,9 @@ namespace GhostDesk {
             options.Content=Text("···",19,Muted);options.Padding=new Thickness(8,0,8,0);options.ToolTip="Dock options";
             options.Click+=(s,e)=>{var m=Menu();m.PlacementTarget=options;m.Placement=PlacementMode.Bottom;m.IsOpen=true;};
             DockPanel.SetDock(options,Dock.Right);header.Children.Add(options);
-            var heading=Text("Ghost Desk",21,White);heading.FontWeight=FontWeights.SemiBold;header.Children.Add(heading);
+            var heading=Text("Ghost Desk",21,White);heading.FontWeight=FontWeights.SemiBold;
+            var grip=new Border {Background=Brushes.Transparent,Child=heading,Cursor=Cursors.SizeAll,ToolTip="Drag to any screen edge"};
+            EnableDrag(grip);header.Children.Add(grip);
             detail.Children.Add(header);
             count.Margin=new Thickness(0,4,0,12);Grid.SetRow(count,1);detail.Children.Add(count);
             scroll.VerticalScrollBarVisibility=ScrollBarVisibility.Auto;scroll.HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled;
@@ -223,9 +251,9 @@ namespace GhostDesk {
         }
         ContextMenu Menu() {
             var menu=new ContextMenu();
-            foreach(bool onLeft in new[]{true,false}) {
-                var item=new MenuItem {Header=onLeft?"Dock on left":"Dock on right",IsChecked=left==onLeft};
-                item.Click+=(s,e)=>{left=onLeft;Save();Draw();Place();};
+            foreach(DockEdge choice in Enum.GetValues(typeof(DockEdge))) {
+                var item=new MenuItem {Header="Dock on "+choice.ToString().ToLowerInvariant(),IsChecked=edge==choice};
+                item.Click+=(s,e)=>{edge=choice;displayName=screen.DeviceName;Save();Draw();Place();};
                 menu.Items.Add(item);
             }
             if(Screen.AllScreens.Length>1) {
@@ -234,7 +262,7 @@ namespace GhostDesk {
                     var target=display;
                     var item=new MenuItem {Header="Display "+(++number)+(display.Primary?" (primary)":""),
                         IsChecked=display.DeviceName==screen.DeviceName};
-                    item.Click+=(s,e)=>{screen=target;Save();Place();};displays.Items.Add(item);
+                    item.Click+=(s,e)=>{screen=target;displayName=target.DeviceName;Save();Place();};displays.Items.Add(item);
                 }
                 menu.Items.Add(displays);
             }
@@ -245,7 +273,7 @@ namespace GhostDesk {
             var close=new MenuItem{Header=managed?"Quit Ghost Desk":"Close dock"};close.Click+=(s,e)=>Close();menu.Items.Add(close); return menu;
         }
         void Save() {
-            try {Directory.CreateDirectory(Path.GetDirectoryName(prefs));File.WriteAllLines(prefs,new[]{left?"left":"right",screen.DeviceName});}
+            try {Directory.CreateDirectory(Path.GetDirectoryName(prefs));File.WriteAllLines(prefs,new[]{edge.ToString().ToLowerInvariant(),displayName,anchor.ToString("R",CultureInfo.InvariantCulture)});}
             catch(IOException) {Message("Could not save dock position.");} catch(UnauthorizedAccessException) {Message("Could not save dock position.");}
         }
         void Toggle(bool open) {
@@ -255,22 +283,79 @@ namespace GhostDesk {
             else {spread=to;Place();}
             if(open) hide.Focus();else rail.Focus();
         }
+        void EnableDrag(FrameworkElement handle) {
+            handle.PreviewMouseLeftButtonDown+=(s,e)=>{
+                if(pressed!=null || e.ButtonState!=MouseButtonState.Pressed)return;
+                var point=e.GetPosition(this);
+                grabX=Math.Max(0,Math.Min(1,point.X/Math.Max(1,ActualWidth)));
+                grabY=Math.Max(0,Math.Min(1,point.Y/Math.Max(1,ActualHeight)));
+                pressPoint=System.Windows.Forms.Cursor.Position;
+                if(!handle.CaptureMouse())return;
+                pressed=handle;dragging=false;
+                if(handle==rail)rail.Focus();else Activate();
+                e.Handled=true;
+            };
+            handle.PreviewMouseMove+=(s,e)=>{
+                if(pressed!=handle)return;
+                if(e.LeftButton!=MouseButtonState.Pressed){CancelDrag();return;}
+                var point=System.Windows.Forms.Cursor.Position;
+                if(!dragging) {
+                    double scale=Native.Scale(screen,hwnd);
+                    if(Math.Abs(point.X-pressPoint.X)<SystemParameters.MinimumHorizontalDragDistance*scale &&
+                       Math.Abs(point.Y-pressPoint.Y)<SystemParameters.MinimumVerticalDragDistance*scale)return;
+                    dragging=true;slide.Stop();spread=expanded?1:0;
+                }
+                Place();e.Handled=true;
+            };
+            handle.PreviewMouseLeftButtonUp+=(s,e)=>{
+                if(pressed!=handle)return;
+                bool moved=dragging;
+                var point=System.Windows.Forms.Cursor.Position;
+                if(moved) {
+                    screen=Screen.FromPoint(point);displayName=screen.DeviceName;
+                    var targetEdge=DockPlacement.Nearest(screen.WorkingArea,point,edge);
+                    // Keep the original point on the rail under the pointer, even when rotating it.
+                    bool horizontalGrab=DockPlacement.Horizontal(expanded?targetEdge:edge);
+                    edge=targetEdge;
+                    anchor=DockPlacement.Anchor(edge,screen.WorkingArea,point,PixelSize(screen),horizontalGrab?grabX:grabY);
+                }
+                pressed=null;dragging=false;handle.ReleaseMouseCapture();e.Handled=true;
+                if(moved) {Draw();Place();Save();}
+                else if(handle==rail && rail.IsMouseOver) Toggle(true);
+            };
+            handle.LostMouseCapture+=(s,e)=>{if(pressed==handle)CancelDrag();};
+        }
+        void CancelDrag() {
+            var handle=pressed;pressed=null;dragging=false;
+            if(handle!=null && handle.IsMouseCaptured)handle.ReleaseMouseCapture();
+            Place();
+        }
         internal void Reveal() {if(!closed){Show();Activate();Toggle(true);}}
+        System.Drawing.Size PixelSize(Screen target) {
+            var area=target.WorkingArea;
+            double dpi=Native.Scale(target,hwnd);
+            int visible=Math.Min(MaxGhosts,Math.Max(1,chats.Length));
+            bool horizontal=DockPlacement.Horizontal(edge);
+            double length=30+visible*(horizontal?36:30)+(chats.Length>MaxGhosts?30:0);
+            double thinWidth=horizontal?length:RailWidth,thinHeight=horizontal?RailWidth:length;
+            double fullHeight=Math.Min(540,Math.Max(166,102+chats.Length*54+(notice.Visibility==Visibility.Visible?50:0)));
+            int w=Math.Min(area.Width,(int)Math.Round((thinWidth+(FullWidth-thinWidth)*spread)*dpi));
+            int h=Math.Min(area.Height,(int)Math.Round((thinHeight+(fullHeight-thinHeight)*spread)*dpi));
+            return new System.Drawing.Size(w,h);
+        }
         void Place() {
             if(hwnd==IntPtr.Zero || closed) return;
-            screen=Screen.AllScreens.FirstOrDefault(s=>s.DeviceName==screen.DeviceName)??Screen.PrimaryScreen;
-            var area=screen.WorkingArea;
-            double dpi=Math.Max(1,Native.GetDpiForWindow(hwnd))/96.0;
-            int visible=Math.Min(MaxGhosts,Math.Max(1,chats.Length));
-            double thinHeight=30+visible*30+(chats.Length>MaxGhosts?22:0);
-            double fullHeight=Math.Min(540,Math.Max(166,102+chats.Length*54+(notice.Visibility==Visibility.Visible?50:0)));
-            int w=Math.Min(area.Width,(int)Math.Round((RailWidth+(FullWidth-RailWidth)*spread)*dpi));
-            int h=Math.Min(area.Height,(int)Math.Round((thinHeight+(fullHeight-thinHeight)*spread)*dpi));
-            var corner=left?new CornerRadius(0,12,12,0):new CornerRadius(12,0,0,12);
+            var cursor=System.Windows.Forms.Cursor.Position;
+            screen=dragging?Screen.FromPoint(cursor):Screen.AllScreens.FirstOrDefault(s=>s.DeviceName==displayName)??Screen.PrimaryScreen;
+            var size=PixelSize(screen);
+            var bounds=DockPlacement.Bounds(edge,screen.WorkingArea,size,anchor);
+            if(dragging) bounds.Location=new System.Drawing.Point(cursor.X-(int)Math.Round(size.Width*grabX),cursor.Y-(int)Math.Round(size.Height*grabY));
+            var corner=edge==DockEdge.Top?new CornerRadius(0,0,12,12):
+                       edge==DockEdge.Bottom?new CornerRadius(12,12,0,0):
+                       edge==DockEdge.Left?new CornerRadius(0,12,12,0):new CornerRadius(12,0,0,12);
             if(frame.CornerRadius!=corner) frame.CornerRadius=corner;
-            int x=left?area.Left:area.Right-w,y=area.Top+(area.Height-h)/2;
             // Keep the shell work area usable everywhere outside this exact window.
-            Native.SetWindowPos(hwnd,IntPtr.Zero,x,y,w,h,0x0014);
+            Native.SetWindowPos(hwnd,IntPtr.Zero,bounds.X,bounds.Y,bounds.Width,bounds.Height,0x0014);
         }
         async Task Poll() {
             if(busy||closed)return; busy=true;
@@ -292,9 +377,16 @@ namespace GhostDesk {
             string focused=(System.Windows.Input.Keyboard.FocusedElement as Button ?? rail).Tag as string;
             double offset=scroll.VerticalOffset;
             railItems.Children.Clear();rows.Children.Clear();
-            var arrow=Text(left?"›":"‹",16,Muted);arrow.HorizontalAlignment=HorizontalAlignment.Center;railItems.Children.Add(arrow);
+            bool horizontal=DockPlacement.Horizontal(edge);
+            railItems.Orientation=horizontal?Orientation.Horizontal:Orientation.Vertical;
+            railItems.HorizontalAlignment=HorizontalAlignment.Center;
+            railItems.VerticalAlignment=VerticalAlignment.Center;
+            string chevron=edge==DockEdge.Top?"⌄":edge==DockEdge.Bottom?"⌃":edge==DockEdge.Left?"›":"‹";
+            var arrow=Text(chevron,16,Muted);arrow.HorizontalAlignment=HorizontalAlignment.Center;
+            if(horizontal)arrow.Margin=new Thickness(3,0,5,0);
+            railItems.Children.Add(arrow);
             foreach(var chat in chats.Take(MaxGhosts)) {
-                var icon=GhostTile(chat,true);icon.Margin=new Thickness(0,1,0,1);
+                var icon=GhostTile(chat,true);icon.Margin=horizontal?new Thickness(1,0,1,0):new Thickness(0,1,0,1);
                 railItems.Children.Add(icon);
             }
             if(chats.Length==0) railItems.Children.Add(new Ghost(new Chat{state="unknown"},22){HorizontalAlignment=HorizontalAlignment.Center});
@@ -303,7 +395,7 @@ namespace GhostDesk {
             }
             int work=chats.Count(s=>s.state=="working"), attention=chats.Count(s=>s.state=="attention");
             string summary=connected?chats.Length+" chats · "+work+" working · "+attention+" need you":"PC bridge offline";
-            count.Text=summary;rail.ToolTip="Open Ghost Desk · "+summary;AutomationProperties.SetHelpText(rail,summary);
+            count.Text=summary;rail.ToolTip="Click to open · Drag to any screen edge · "+summary;AutomationProperties.SetHelpText(rail,summary);
             if(chats.Length==0) rows.Children.Add(Text(connected?"No recent chats":"Waiting for the PC bridge…",14,Muted));
             foreach(Chat chat in chats) {
                 var tint=ProviderTint(chat.provider);
