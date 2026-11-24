@@ -19,7 +19,7 @@ try {
     $runtime=[IO.Directory]::CreateDirectory((Join-Path $bundle 'runtime')).FullName
     $browser=[IO.Directory]::CreateDirectory((Join-Path $bundle 'browser')).FullName
     & (Join-Path $PSScriptRoot 'dock/build.ps1') -OutputFile (Join-Path $bundle 'Ghost Desk.exe')
-    foreach($file in 'bridge.mjs','codex.mjs','desktop.mjs','focus-antigravity.ps1','index.html','panel.js','panel.css') {
+    foreach($file in 'bridge.mjs','activity.mjs','display.html','display.js','sprites.js','sprites.json','codex.mjs','desktop.mjs','focus-antigravity.ps1','index.html','panel.js','panel.css') {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination $app
     }
     foreach($file in 'manifest.json','worker.js','observe.js') {

@@ -47,6 +47,17 @@ namespace GhostDesk {
                 tray.Icon=icon; tray.Text="Ghost Desk"; tray.ContextMenuStrip=menu;
                 tray.DoubleClick+=(s,e)=>window.Reveal();
                 tray.Visible=true;
+                Chat balloon=null;
+                window.BalloonAvailable=()=>balloon==null;
+                window.ShowBalloon=chat=>{
+                    balloon=chat;
+                    tray.ShowBalloonTip(10000,chat.title,DockWindow.NotificationLabel(chat),Forms.ToolTipIcon.Info);
+                };
+                tray.BalloonTipClosed+=(s,e)=>balloon=null;
+                tray.BalloonTipClicked+=(s,e)=>{
+                    var target=balloon;balloon=null;
+                    if(target!=null)window.OpenNotification(target);
+                };
                 bridge.Exited+=(s,e)=>window.Dispatcher.BeginInvoke(new Action(()=>{
                     if(disposed || window.Dispatcher.HasShutdownStarted)return;
                     MessageBox.Show("The local bridge stopped. Open Ghost Desk again to resume monitoring.","Ghost Desk");

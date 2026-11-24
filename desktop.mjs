@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 
+import {projectName} from './activity.mjs';
+
 const require = createRequire(import.meta.url);
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const day = 86400000;
@@ -43,7 +45,7 @@ function readClaudeFiles(roots,cache) {
           const id=s.sessionId;
           if (item.name!==id+'.json' || !uuid.test(id.slice(6))) continue;
           row={id,mtime:stat.mtimeMs,size:stat.size,title:s.title,archived:s.isArchived===true,
-            active:Number(s.lastActivityAt)||Number(s.createdAt)||0,turns:Number(s.completedTurns)||0,
+            project:projectName(s.originCwd||s.cwd||s.workingDirectory||s.projectPath||s.initialCwd),active:Number(s.lastActivityAt)||Number(s.createdAt)||0,turns:Number(s.completedTurns)||0,
             interrupted:s.interruptedAwaitingPerson===true,wrapped:!!s.turnWrapUp?.description};
           cache.set(file,row);
         }
@@ -79,7 +81,7 @@ function claudeSnapshot(home,cache,isAlive,now) {
     if (!worker && r.interrupted) state='stopped';
     else if (!worker && r.wrapped) state='finished';
     sessions.push({id:'claude-desktop/'+r.id,provider:'Claude Code',title:cleanTitle(r.title||worker?.name,'Claude '+r.id.slice(-6)),
-      state,updatedAt:Math.max(r.active||0,Number(worker?.statusUpdatedAt)||0)});
+      state,project:r.project||projectName(worker?.cwd),reason:state==='attention'?'input':'',stateAt:Number(worker?.statusUpdatedAt)||0,updatedAt:Math.max(r.active||0,Number(worker?.statusUpdatedAt)||0)});
   }
   return {sessions,health:roots.some(r=>fs.existsSync(r))||live.size?'Local sessions':'Waiting for a local Code session'};
 }
@@ -93,9 +95,18 @@ function waitingForUser(transcript) {
     fs.readSync(fd,buf,0,length,size-length);
     const lines=buf.toString('utf8').trimEnd().split('\n');
     const step=JSON.parse(lines.at(-1));
-    return ['WAITING_FOR_USER_INPUT','WAITING_FOR_APPROVAL','AWAITING_USER_INPUT'].includes(step.status) ||
-      (step.status==='WAITING' && ['USER_INPUT','ASK_USER','REQUEST_USER_INPUT','REQUEST_APPROVAL'].includes(step.type));
+    if(step.status==='WAITING_FOR_APPROVAL'||(step.status==='WAITING'&&step.type==='REQUEST_APPROVAL'))return 'approval';
+    if(['WAITING','WAITING_FOR_USER_INPUT','AWAITING_USER_INPUT'].includes(step.status) && ['ASK_USER','REQUEST_USER_INPUT'].includes(step.type))return 'question';
+    if(['WAITING_FOR_USER_INPUT','AWAITING_USER_INPUT'].includes(step.status)||(step.status==='WAITING'&&step.type==='USER_INPUT'))return 'input';
   } catch { return false; } finally {if(fd!==undefined) fs.closeSync(fd);}
+}
+
+function workspaceLabel(raw) {
+  if(typeof raw!=='string')return '';
+  if(raw.trim().startsWith('[')) {
+    try {return JSON.parse(raw).map(projectName).filter(Boolean).join(' + ').slice(0,80);} catch {return '';}
+  }
+  return projectName(raw);
 }
 
 function antigravitySnapshot(home,now) {
@@ -106,7 +117,9 @@ function antigravitySnapshot(home,now) {
     let DatabaseSync;
     try { ({DatabaseSync}=require('node:sqlite')); } catch {return {sessions:[],health:'Requires Node.js 22.13 or newer'};}
     database=new DatabaseSync(file,{readOnly:true});
-    const records=database.prepare(`SELECT conversation_id AS id,title,status,killed,not_fully_idle AS background,
+    const columns=new Set(database.prepare('PRAGMA table_info(conversation_summaries)').all().map(c=>c.name));
+    const workspace=['workspace_uris','workspace_uri','workspace_path','workspace_root','workspace'].find(c=>columns.has(c));
+    const records=database.prepare(`SELECT conversation_id AS id,title,status,killed,${workspace||"''"} AS workspace,not_fully_idle AS background,
       (SELECT count(*) FROM conversation_summaries other WHERE other.title=s.title COLLATE NOCASE
         OR substr(other.title,1,length(s.title)+1)=(s.title||' ') COLLATE NOCASE)=1 AS uniqueTitle,
       CAST((julianday(last_modified_time)-2440587.5)*86400000 AS INTEGER) AS updatedAt
@@ -115,15 +128,15 @@ function antigravitySnapshot(home,now) {
     const sessions=[];
     for(const r of records) {
       if (!uuid.test(r.id)) continue;
-      let state='unknown';
+      let state='unknown',reason='';
       if (r.killed) state='stopped';
-      else if (['CASCADE_RUN_STATUS_WAITING_FOR_USER_INPUT','CASCADE_RUN_STATUS_WAITING_FOR_APPROVAL'].includes(r.status)) state='attention';
+      else if (['CASCADE_RUN_STATUS_WAITING_FOR_USER_INPUT','CASCADE_RUN_STATUS_WAITING_FOR_APPROVAL'].includes(r.status)) {state='attention';reason=r.status.endsWith('APPROVAL')?'approval':'input';}
       else if (r.status==='CASCADE_RUN_STATUS_RUNNING' || r.background) {
         const log=path.join(dir,'brain',r.id,'.system_generated','logs','transcript.jsonl');
-        state=waitingForUser(log)?'attention':'working';
+        reason=waitingForUser(log)||'';state=reason?'attention':'working';
       } else if (r.status==='CASCADE_RUN_STATUS_IDLE') state='finished';
       sessions.push({id:'antigravity/'+r.id,provider:'Antigravity',title:cleanTitle(r.title,'Conversation '+r.id.slice(-6)),
-        uniqueTitle:!!r.uniqueTitle && !!r.title && r.title.length<=180,state,updatedAt:r.updatedAt});
+        reason,project:workspaceLabel(r.workspace),uniqueTitle:!!r.uniqueTitle && !!r.title && r.title.length<=180,state,updatedAt:r.updatedAt});
     }
     return {sessions,health:'Local conversations'};
   } catch { return {sessions:[],health:'Session index unavailable'}; }

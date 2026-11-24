@@ -6,10 +6,20 @@ A Windows edge dock for local Codex, Claude Code in Claude Desktop, and Google A
 
 1. On 64-bit Windows 10 or 11 with .NET Framework 4.8, extract **Ghost-Desk-Windows-x64.zip**. Open **Ghost Desk.exe** inside the extracted folder. A narrow ghost tab appears at the center of the right screen edge on first launch. The app starts its local bridge in the background.
 2. Drag the ghost strip to any monitor and release near its **top, bottom, left, or right** edge. The strip snaps to the nearest edge at the position where you drop it. Top and bottom use a horizontal strip. The dock stays inside the monitor's work area, clear of the taskbar, and remembers its monitor, edge, and position.
-3. Click the strip to expand it inward. Drag the **Ghost Desk** heading to move the expanded panel. Click a chat to open it. Choose **Hide** or press **Esc** to collapse it. Working ghosts bob, attention ghosts shift sideways, and finished ghosts rest with closed eyes. The strip shows up to nine ghosts, with attention and working sessions first. A **+N** count covers additional chats.
+3. Click the strip to expand it inward. Drag the **Ghost Desk** heading to move the expanded panel. Click a chat to open it. Choose **Hide** or press **Esc** to collapse it. The strip shows up to nine ghosts. Pinned chats keep their slots, followed by chats waiting for you, working chats and newly completed turns. Click **+N other chats** in the expanded dock to see the rest.
 4. Open **···** or right-click the strip to choose an edge or display from a menu. **Hide to tray** hides the entire dock. Double-click the ghost in the Windows notification area to bring it back. **Quit Ghost Desk** closes the app and its bridge together.
 
 You can also open the running panel at **http://127.0.0.1:43821**. Choose **Float ↗** for the browser floating panel or **Preview** for sample chats. The Windows app runs in your signed-in desktop session and listens only on the loopback address. It starts when you launch it.
+
+## Review and navigation
+
+A newly observed completion gets **Ready to review**, open eyes and a white corner dot. Open the chat through Ghost Desk or right-click its row and choose **Mark reviewed**. If Antigravity opens its picker for manual selection, the dot stays until you mark that chat reviewed. Chats already idle on first observation start quietly. Each row shows the provider and project below its title. When the client supplies no project, a short chat ID helps distinguish duplicate names.
+
+Right-click a row to **Pin chat** or **Mute alerts**. Pinned ghosts keep their strip positions across restarts. The list holds its order while the pointer is over it. Hover over a ghost to see a preview that opens inward from the edge with its title, project, status and elapsed time.
+
+**Ctrl + Alt + G** opens the oldest chat waiting for input. With no waiting chat it opens the panel. Under **··· → Jump to oldest wait**, choose another shortcut or turn it off. Under **··· → Notify after 30s waiting**, enable Windows notification-area alerts. Alerts start off, respect per-chat mute, and fire once per observed wait. Click a live alert to go to its chat. Windows notification settings govern delivery.
+
+**··· → ESP32 display preview** opens a pixel-resolution simulator in the browser. Pick 240 × 240, 320 × 240 or 480 × 320. Try 5 or 15 sample chats or your live list. Tap a ghost for detail and page through crowded screens. The simulator and Windows dock draw from the same 16 × 16 sprite artwork. Samples stay separate from live chat actions.
 
 ![Ghost Desk with sample chats](<Ghost Desk preview.png>)
 
@@ -22,7 +32,7 @@ Use 64-bit Windows with .NET Framework 4.8 and PowerShell. To run from a checkou
 & '.\Ghost Desk.exe'
 ```
 
-Run the adapter tests with `node tests/desktop.mjs`. To produce a self-contained distribution, run `.\package.ps1`. It verifies a pinned official Node.js Windows archive, includes its license, and writes **dist/Ghost-Desk-Windows-x64.zip**. For an offline build, pass the matching archive with `-RuntimeZip`. The Windows GitHub Actions workflow performs the test and build and uploads the ZIP as a workflow artifact.
+Run the adapter and activity tests with `node tests/desktop.mjs` and `node tests/activity.mjs`. To produce a self-contained distribution, run `.\package.ps1`. It verifies a pinned official Node.js Windows archive, includes its license, and writes **dist/Ghost-Desk-Windows-x64.zip**. For an offline build, pass the matching archive with `-RuntimeZip`. The Windows GitHub Actions workflow performs the test and build and uploads the ZIP as a workflow artifact.
 
 ## Desktop apps
 
@@ -40,24 +50,25 @@ The native readers reflect the formats in the installed apps. An app update can 
 
 Open **chrome://extensions** or **edge://extensions** in the profile that contains your chats. Turn on **Developer mode**, choose **Load unpacked**, then choose the **browser** folder next to this file. Refresh already-open Claude, Gemini, and ChatGPT tabs once so the observer can read their controls. Repeat for another browser profile as needed. Keep the extension folder in its current location while it is loaded.
 
-The connector reports titles, provider, state, and a hashed route ID to the local bridge. A click activates the matching existing tab and brings its window forward. A provider's new-chat screen can appear as Available. Closed tabs drop out after the next successful snapshot. A sleeping or disconnected browser profile drops out after one minute. The connector uses your existing signed-in browser session. Ghost Desk stores its list in memory and never asks for account tokens.
+The connector reports titles, provider, state, and a hashed route ID to the local bridge. A click activates the matching existing tab and brings its window forward. A provider's new-chat screen can appear as Available. Closed tabs drop out after the next successful snapshot. A sleeping or disconnected browser profile drops out after one minute. The connector uses your existing signed-in browser session. Titles and workspace labels stay in memory. Ghost Desk saves per-chat identity, colors, pins, mute settings and state markers locally under %LOCALAPPDATA%\\Ghost Desk. It uses no account tokens.
 
 ## What the states mean
 
 | State | Ghost | Evidence |
 | --- | --- | --- |
-| Available | Steady, open circle | A visible chat composer, with no turn observed yet |
+| Available | Steady, small open eyes | A visible chat composer, with no turn observed yet |
 | Working | Bobs, three dots | A local Codex turn started, or a browser generation control is visible |
-| Needs you | Tilts, exclamation mark | Claude Desktop reports waiting, an explicit Antigravity input wait, or a supported web approval dialog |
-| Turn ended | Rests, check mark | A Codex completion event, or a previously observed web generation control disappeared and the composer returned |
-| Stopped | Dim, square | A local Codex abort event |
+| Needs you | Shifts sideways, raised exclamation mark | Claude Desktop reports waiting, an explicit Antigravity input wait, or a supported web approval dialog |
+| Ready to review | Open eyes, white corner dot | The bridge observed a working or waiting chat finish and the completion is unacknowledged |
+| Turn ended | Rests with closed eyes | A Codex completion event, or a previously observed web generation control disappeared and the composer returned |
+| Stopped | Dim face, square mouth | A local Codex abort event |
 | Status unknown | Gray, question mark | Evidence is missing, outdated, or unrecognized |
 
-Color follows the session ID. Movement, text, and symbols identify the state. Reduced-motion preferences disable animation. A web turn ending can include a user stopping generation. Web observers inspect visible controls and can miss short turns, localized controls, in-chat questions, custom widgets, background work, and changes to provider interfaces. A chat that was already finished when observation began may appear Available.
+An approval or question gets a specific label when the client provides evidence. A generic user wait is labeled Needs you. Elapsed time uses the reported state change or the time Ghost Desk first observed it. Color follows the session ID. Movement, text, and symbols identify the state. Reduced-motion preferences disable animation. A web turn ending can include a user stopping generation. Web observers inspect visible controls and can miss short turns, localized controls, in-chat questions, custom widgets, background work, and changes to provider interfaces. A chat that was already finished when observation began may appear Available.
 
 ## Coverage
 
-**Codex desktop** reads recent local rollout logs and the title index under CODEX_HOME or the user's .codex directory. It considers the 48 most recently updated logs from the last 24 hours. It reads the last 1 MiB of each log and can look back another 16 MiB for a missing turn boundary after a restart. A missing boundary can yield Status unknown. Fifteen minutes without a fresh event changes Working to Status unknown. A click opens the documented codex://threads/<id> link. Approval tracking for native Codex, remote-host sessions, and cloud tasks is outside this starter's coverage.
+**Codex desktop** reads recent local rollout logs and the title index under CODEX_HOME or the user's .codex directory. It considers the 48 most recently updated logs from the last 24 hours. It reads the last 1 MiB of each log and can look back another 16 MiB for a missing turn boundary after a restart. A missing boundary can yield Status unknown. Fifteen minutes without a fresh event changes Working to Status unknown. A click opens the documented codex://threads/<id> link. The reader matches explicit approval requests and blocking question calls to their responses when recorded in the local log. Some desktop prompts are visible only inside their client. Remote-host sessions and cloud tasks are outside the local readers’ coverage.
 
 **Claude, Gemini, and ChatGPT web** use open conversation tabs in connected Chrome or Edge profiles. The Windows desktop readers work independently of these tabs. Cloud sessions, SSH or WSL workers, the regular Claude Chat tab, Gemini CLI, and Antigravity IDE are outside the native readers' coverage.
 
@@ -65,8 +76,10 @@ Color follows the session ID. Movement, text, and symbols identify the state. Re
 
 The PC owns provider integration, chat lookup, and window activation. Both desktop and future device clients can use the same versioned contract.
 
-- GET /v1/sessions returns version, source health, and compact session records containing id, provider, title, state, updatedAt (Unix milliseconds), and hue (0–359).
+- GET /v1/sessions returns version, source health, and compact session records containing id, provider, title, state, updatedAt (Unix milliseconds), and hue (0–359). Additional fields include project, reason, stateSince, review, pin and muted. Base state stays finished while review is pending.
 - POST /v1/focus accepts JSON with a single id. The PC resolves it against the current session list and activates the matching target. Browser requests wait for acknowledgment. A Codex or Claude Desktop protocol launch confirms that Windows accepted the link. Antigravity returns a target of session, picker, or application. The latter two include a message for the display when manual selection is needed.
+
+- POST /v1/chat accepts id, op and value for pin or mute. A review acknowledgment includes the stateSince of the observed completion. The bridge checks the local origin and the current chat before applying changes.
 
 For the first hardware version, add a USB serial transport to the bridge. Send a compact, paged snapshot on connect or reconnect, then changes keyed by id. The board can render a small ghost sprite, use the same state labels, and send a focus request with the touched ID. A Wi-Fi version can use an authenticated device endpoint. The starter exposes only loopback HTTP and checks origins on writes. Device transport, pairing, board-specific graphics, and firmware are future work.
 

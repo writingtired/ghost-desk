@@ -1,54 +1,69 @@
+import {drawGhost,label,context,age,samples} from './sprites.js';
 const desk=document.querySelector('#desk'),rows=desk.querySelector('#rows');
 const el=id=>desk.querySelector('#'+id);
-const labels={available:'Available',working:'Working',attention:'Needs you',finished:'Turn ended',unknown:'Status unknown',stopped:'Stopped'};
-const icons={available:'○',working:'···',attention:'!',finished:'✓',unknown:'?',stopped:'■'};
 const rank={attention:0,working:1,finished:2,stopped:3,available:4,unknown:5};
-const examples=[
-  {provider:'Claude Code',title:'Review the release notes',state:'attention',hue:22},
-  {provider:'Codex',title:'Build the touchscreen menu',state:'working',hue:190},
-  {provider:'Antigravity',title:'Compare display layouts',state:'finished',hue:282},
-  {provider:'Claude Code',title:'Plan the next session',state:'available',hue:105}
-];
-let demo=false, data=null, connected=false, previous='',busy=false;
+const current=s=>s.pin||s.review||s.state==='attention'||s.state==='working';
+let demo=false,data=null,connected=false,previous='',busy=false,all=false,frozen=null,menu='',held=false;
+function reset(){frozen=null;menu='';previous='';render();}
+rows.onpointerenter=()=>{if(!frozen)frozen=[...rows.querySelectorAll('.row')].map(b=>b.chat);};
+rows.onpointerleave=()=>{if(!menu&&frozen){frozen=null;render();}};
+rows.onpointerdown=()=>held=true;
+desk.ownerDocument.addEventListener('pointerup',()=>held=false,true);
+rows.onpointerup=rows.onpointercancel=()=>held=false;
+function actionButton(doc,text,fn){
+  const b=doc.createElement('button');b.textContent=text;b.onclick=fn;return b;
+}
+async function post(route,body){
+  const response=await fetch('/v1/'+route,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  if(!response.ok)throw Error();return response.json();
+}
 function render() {
-  const list=demo?examples:[...(data?.sessions||[])].sort((a,b)=>rank[a.state]-rank[b.state]||b.updatedAt-a.updatedAt);
-  const signature=JSON.stringify([demo,connected,list,data?.sources]);
-  if (signature===previous) return;
+  const list=demo?samples.slice(0,4):[...(data?.sessions||[])].sort((a,b)=>(!a.pin)-(!b.pin)||(a.pin||0)-(b.pin||0)||rank[a.state]-rank[b.state]||Number(b.review)-Number(a.review)||b.updatedAt-a.updatedAt);
+  const quiet=list.filter(s=>!current(s)).length;
+  const shown=frozen?frozen.map(old=>list.find(s=>s.id===old.id)||old):list.filter(s=>demo||all||current(s));
+  const signature=JSON.stringify([demo,connected,shown.map(s=>[s.id,list.some(l=>l.id===s.id),s.project,s.title,s.provider,s.hue,s.state,s.reason,s.pin,s.review,s.muted,s.stateSince,s.state==='attention'?age(s):'']),list.length,quiet,all,menu,data?.sources]);
+  if(signature===previous||held)return;
   previous=signature;
   const doc=desk.ownerDocument,active=doc.activeElement?.dataset?.id;
   el('live').setAttribute('aria-pressed',String(!demo));el('demo').setAttribute('aria-pressed',String(demo));
-  const attention=list.filter(s=>s.state==='attention').length;
-  const working=list.filter(s=>s.state==='working').length;
+  const attention=list.filter(s=>s.state==='attention').length,working=list.filter(s=>s.state==='working').length;
   el('connection').textContent=demo?'Example chats · animation preview':!connected?'PC bridge offline':list.length+' chats · '+working+' working · '+attention+' need you';
-  el('sources').textContent=demo?'Preview uses sample sessions.':!connected?'Start the Ghost Desk bridge to see live sessions.':
-    ['Codex · '+data.sources.codex,'Claude Code · '+(data.sources.claudeDesktop||'Restart bridge'),
-      'Antigravity · '+(data.sources.antigravity||'Restart bridge'),
-      ...(data.sources.browser?['Browser · '+data.sources.browser+' connected']:[])].join('\n');
+  el('sources').textContent=demo?'Preview uses sample sessions.':!connected?'Open Ghost Desk to see live sessions.':
+    ['Codex · '+data.sources.codex,'Claude Code · '+data.sources.claudeDesktop,'Antigravity · '+data.sources.antigravity,...(data.sources.browser?['Browser · '+data.sources.browser+' connected']:[])].join('\n');
   rows.replaceChildren();
-  for (const s of list) {
-    const b=doc.createElement('button');b.className='row '+s.state;b.disabled=demo||!connected;b.dataset.id=s.id||'';
-    b.title=s.title+' · '+labels[s.state];b.setAttribute('aria-label',(demo?'Preview ':'Open ')+s.provider+' chat, '+s.title+', '+labels[s.state]);
-    b.dataset.provider=s.provider;
-    b.innerHTML='<span class="ghost-tile" aria-hidden="true"><span class="ghost"></span></span><span class="copy"><strong></strong><span class="info"><span></span><span aria-hidden="true">/</span><span class="state"></span></span></span><span class="icon" aria-hidden="true"></span>';
-    b.style.setProperty('--hue',s.hue);
-    b.querySelector('strong').textContent=s.title;b.querySelector('.info span').textContent=s.provider;
-    b.querySelector('.state').textContent=labels[s.state];b.querySelector('.icon').textContent=icons[s.state];
-    b.onclick=async()=>{
-      el('notice').textContent='Opening '+s.provider+'…';
-      try {
-        const r=await fetch('/v1/focus',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:s.id})});
-        const result=await r.json();
-        el('notice').textContent=r.ok?(result.message||''):'Could not open that chat. Check that its client is still connected.';
-      } catch {el('notice').textContent='PC bridge unavailable.';}
-    };
-    rows.append(b);
-    if (active && active===s.id) b.focus({preventScroll:true});
+  for(const s of shown){
+    const wrap=doc.createElement('div');wrap.className='chat';wrap.dataset.provider=s.provider;
+    const b=doc.createElement('button');b.className='row '+s.state;b.disabled=demo||!connected||!list.some(c=>c.id===s.id);b.chat=s;b.dataset.id=s.id;b.dataset.provider=s.provider;
+    b.setAttribute('aria-label',(demo?'Preview ':'Open ')+s.title+', '+context(s)+', '+label(s));
+    b.innerHTML='<span class="ghost-tile" aria-hidden="true"><canvas class="ghost" width="16" height="16"></canvas></span><span class="copy"><strong></strong><span class="info"></span></span><span class="status"><span class="state"></span><small></small></span>';
+    b.title=s.title+'\n'+context(s)+'\n'+label(s)+' · '+age(s);
+    drawGhost(b.querySelector('canvas').getContext('2d'),s);
+    b.querySelector('strong').textContent=s.title;b.querySelector('.info').textContent=(s.pin?'★  ':'')+context(s);
+    b.querySelector('.state').textContent=label(s);if(s.state==='attention')b.querySelector('small').textContent=age(s);
+    b.onclick=async()=>{try{const r=await post('focus',{id:s.id});el('notice').textContent=r.message||'';await refresh();}catch{el('notice').textContent='Could not open this chat.';}};
+    wrap.append(b);
+    if(!demo&&!b.disabled){
+      const more=actionButton(doc,'···',()=>{menu=menu===s.id?'':s.id;render();});
+      more.className='chat-more';more.setAttribute('aria-label','Chat options for '+s.title);more.setAttribute('aria-expanded',String(menu===s.id));wrap.append(more);
+      if(menu===s.id) {
+        const actions=doc.createElement('div');actions.className='actions';
+        const choices=[[s.pin?'Unpin chat':'Pin chat','pin',!s.pin],[s.muted?'Unmute alerts':'Mute alerts','mute',!s.muted]];
+        if(s.review)choices.unshift(['Mark reviewed','review',false]);
+        for(const [name,op,value] of choices)actions.append(actionButton(doc,name,async()=>{
+          try{await post('chat',{id:s.id,op,value,since:s.stateSince});}catch{el('notice').textContent='This chat changed. Check its current status.';}
+          menu='';frozen=null;await refresh();render();
+        }));
+        wrap.append(actions);
+      }
+    }
+    rows.append(wrap);if(active===s.id)b.focus({preventScroll:true});
   }
-  if (!list.length) {
-    const p=doc.createElement('p');p.className='placeholder';
-    p.textContent=connected?'No recent chats detected. Open a chat in a connected client.':'Waiting for the PC bridge…';rows.append(p);
+  el('fold').hidden=demo||(!quiet&&!all)||!connected;el('fold').textContent=all?'Show current work':'+'+quiet+' other chat'+(quiet===1?'':'s');
+  if(!shown.length){
+    const p=doc.createElement('p');p.className='placeholder';p.textContent=!connected?'Waiting for the PC bridge…':list.length?'All quiet.':'No recent chats detected.';rows.append(p);
   }
 }
+el('fold').onclick=()=>{all=!all;reset();};
 async function refresh() {
   if (busy) return;
   busy=true;
@@ -59,8 +74,8 @@ async function refresh() {
   } catch {data=null;connected=false;}
   finally {busy=false;render();}
 }
-el('live').onclick=()=>{demo=false;el('notice').textContent='';render();};
-el('demo').onclick=()=>{demo=true;el('notice').textContent='';render();};
+el('live').onclick=()=>{demo=false;el('notice').textContent='';reset();};
+el('demo').onclick=()=>{demo=true;el('notice').textContent='';reset();};
 el('dock').onclick=async()=>{
   try {
     const response=await fetch('/v1/dock',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});

@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ESP32 display · Ghost Desk</title><link rel="stylesheet" href="/panel.css"></head>
+<body><main id="display"><header><div class="brand"><i></i> GHOST DESK</div><a href="/">Chat activity</a></header>
+<section class="intro"><h1>ESP32 display</h1><p>Choose a resolution and tap a ghost to inspect its chat.</p></section>
+<div class="display-controls"><label>Screen<select id="size"><option>320 × 240</option><option>240 × 240</option><option>480 × 320</option></select></label>
+<label>Chats<select id="source"><option value="5">5 samples</option><option value="15">15 samples</option><option value="live">Live chats</option></select></label></div>
+<div class="viewport"><div class="glass"><canvas id="screen" width="320" height="240" aria-label="Ghost display"></canvas><div id="targets"></div></div></div>
+<p id="details" role="status"></p></main><script type="module" src="/display.js"></script></body></html>

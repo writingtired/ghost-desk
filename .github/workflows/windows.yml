@@ -17,6 +17,8 @@ jobs:
           node-version: '24.19.0'
       - name: Test desktop adapters
         run: node tests/desktop.mjs
+      - name: Test review, identity and wait tracking
+        run: node tests/activity.mjs
       - name: Test dock placement
         shell: pwsh
         run: ./tests/dock-placement.ps1

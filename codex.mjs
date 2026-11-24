@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
+import {projectName} from './activity.mjs';
+
 const home = process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
 const root = path.join(home, 'sessions');
 const day = 86400000;
@@ -64,10 +66,39 @@ function readNames() {
   } catch { /* A fresh installation may not have a title index yet. */ }
 }
 
+function initialProject(file) {
+  const fd=fs.openSync(file,'r');
+  try {
+    const buffer=Buffer.alloc(65536),count=fs.readSync(fd,buffer,0,buffer.length,0);
+    const first=buffer.toString('utf8',0,count).split('\n',1)[0];
+    // Long session headers may include instructions after the working directory.
+    const cwd=first.match(/"cwd"\s*:\s*("(?:\\.|[^"\\])*")/);
+    return cwd?projectName(JSON.parse(cwd[1])):'';
+  } catch {return '';} finally {fs.closeSync(fd);}
+}
+
+function applyRecord(previous,r,time) {
+  const p=r.payload||{};
+  const hadWait=previous.waits.size>0;
+  if(r.type==='turn_context' && p.cwd)previous.project=projectName(p.cwd);
+  if(r.type==='event_msg' && boundaries.has(p.type)) {
+    previous.state=boundaries.get(p.type);previous.stateAt=time;previous.waits.clear();
+  } else if(r.type==='response_item') {
+    if(p.type==='function_call' && p.call_id && /^(?:functions\.)?request_user_input$/.test(p.name)) {
+      previous.waits.set(p.call_id,{reason:'question',time});
+    } else if(['function_call_output','custom_tool_call_output'].includes(p.type))previous.waits.delete(p.call_id);
+  } else if(r.type==='event_msg' && p.call_id) {
+    if(['exec_approval_request','apply_patch_approval_request'].includes(p.type))previous.waits.set(p.call_id,{reason:'approval',time});
+    else if(['exec_command_begin','exec_command_end','patch_apply_begin','patch_apply_end','approval_response'].includes(p.type))previous.waits.delete(p.call_id);
+  }
+  if(hadWait && !previous.waits.size && previous.state==='working')previous.stateAt=time;
+  if(r.type==='event_msg'||r.type==='response_item')previous.seen=Math.max(previous.seen,time);
+}
+
 function inspect({id,full}) {
   const size = fs.statSync(full).size;
   let previous = cache.get(id);
-  if (!previous || previous.offset > size) previous = {offset:0, state:'unknown', seen:0};
+  if (!previous || previous.offset > size) previous = {offset:0,state:'unknown',seen:0,stateAt:0,waits:new Map(),project:initialProject(full)};
   if (size !== previous.offset) {
     const offset = Math.max(previous.offset,size-limit);
     const bytes = Buffer.alloc(size-offset);
@@ -77,22 +108,20 @@ function inspect({id,full}) {
     const end = bytes.subarray(0,count).lastIndexOf(10);
     if (end >= 0) {
       const lines = bytes.subarray(0,end).toString('utf8').split('\n');
-      if (offset > previous.offset) { lines.shift(); previous.state = 'unknown'; }
+      if (offset > previous.offset) { lines.shift(); previous.state = 'unknown';previous.waits.clear(); }
       for (const line of lines) {
         try {
           const r = JSON.parse(line);
-          if (r.type !== 'event_msg') continue;
           const time = Date.parse(r.timestamp);
           if (!Number.isFinite(time)) continue;
-          previous.state=boundaries.get(r.payload.type)||previous.state;
-          previous.seen = time;
+          applyRecord(previous,r,time);
         } catch { /* Ignore partial or unrecognized records. */ }
       }
       if (previous.state==='unknown' && offset>previous.offset) {
         // Include the first partial line in the backward search.
         const boundary=earlierState(full,offset+bytes.indexOf(10)+1);
         if (boundary) {
-          previous.state=boundary.state;
+          previous.state=boundary.state;previous.stateAt=boundary.seen;
           previous.seen=Math.max(previous.seen,boundary.seen);
         }
       }
@@ -100,9 +129,10 @@ function inspect({id,full}) {
     }
     cache.set(id,previous);
   }
-  const state = previous.state === 'working' && Date.now()-previous.seen > 900000 ? 'unknown' : previous.state;
+  const wait=previous.waits.entries().next().value;
+  const state = wait?'attention':previous.state === 'working' && Date.now()-previous.seen > 900000 ? 'unknown' : previous.state;
   return {id:'codex/'+id,provider:'Codex',title:(names.get(id)||'Chat '+id.slice(-6)).slice(0,100),
-    state,updatedAt:previous.seen || fs.statSync(full).mtimeMs};
+    project:previous.project,reason:wait?.[1].reason||'',waitKey:wait?.[0]||'',stateAt:wait?.[1].time||previous.stateAt,state,updatedAt:previous.seen || fs.statSync(full).mtimeMs};
 }
 
 export function codexSnapshot() {

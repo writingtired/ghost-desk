@@ -1,6 +1,9 @@
 import http from 'node:http';
 import fs from 'node:fs';
-import {createHash, randomUUID} from 'node:crypto';
+import path from 'node:path';
+import os from 'node:os';
+import {createActivity} from './activity.mjs';
+import {randomUUID} from 'node:crypto';
 import {execFile,spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {fileURLToPath} from 'node:url';
@@ -17,8 +20,9 @@ const extension = 'chrome-extension://kceeadhohjmcidiobhonglfnmgffekik';
 const states = new Set(['available','working','attention','finished','stopped','unknown']);
 const providers = new Set(['Claude','Gemini','ChatGPT']);
 const clients = new Map(), tickets = new Map();
-const colors = new Map();
-const files = new Map([['/',['index.html','text/html']],['/panel.css',['panel.css','text/css']],['/panel.js',['panel.js','text/javascript']]]);
+const dataDir=process.env.GHOST_DESK_DATA || path.join(process.env.LOCALAPPDATA||os.homedir(),'Ghost Desk');
+const activity=createActivity(path.join(dataDir,'activity-'+port+'.json'));
+const files = new Map([['/',['index.html','text/html']],['/panel.css',['panel.css','text/css']],['/panel.js',['panel.js','text/javascript']],['/esp32',['display.html','text/html']],['/display.js',['display.js','text/javascript']],['/sprites.json',['sprites.json','application/json']],['/sprites.js',['sprites.js','text/javascript']]]);
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 
 async function openDock() {
@@ -37,22 +41,7 @@ function snapshot() {
     if (Date.now()-client.seen > 60000) clients.delete(id);
     else sessions.push(...client.sessions);
   }
-  const used = new Set(sessions.map(s=>colors.get(s.id)).filter(h=>h!==undefined));
-  for (const s of sessions) {
-    if (!colors.has(s.id)) {
-      let hue = createHash('sha256').update(s.id).digest().readUInt16BE(0)%360;
-      let best=hue, distance=-1;
-      for (let i=0;i<360 && used.size<360;i++) {
-        const gap=Math.min(180,...Array.from(used,h=>Math.min(Math.abs(h-hue),360-Math.abs(h-hue))));
-        if (gap>distance) {best=hue;distance=gap;}
-        if (gap>=24) break;
-        hue=(hue+137)%360;
-      }
-      colors.set(s.id,best);used.add(best);
-    }
-    s.hue=colors.get(s.id);
-  }
-  return {version:1, sources:{codex:local.health,...desktop.sources,browser:clients.size},sessions};
+  return {version:1, sources:{codex:local.health,...desktop.sources,browser:clients.size},sessions:activity.update(sessions)};
 }
 async function body(req) {
   let length = 0;
@@ -69,8 +58,9 @@ function sync(data) {
   const sessions = data.sessions.map(s=>{
     if (!/^[a-f0-9]{32}$/.test(s.key) || !providers.has(s.provider) || !states.has(s.state) ||
         typeof s.title!=='string' || !Number.isFinite(s.updatedAt)) throw Error('Invalid session');
-    return {id:'web/'+data.client+'/'+s.key, provider:s.provider,title:s.title.slice(0,100),state:s.state,updatedAt:s.updatedAt};
+    return {id:'web/'+data.client+'/'+s.key, provider:s.provider,title:s.title.slice(0,100),state:s.state,reason:s.state==='attention'?'approval':'',stateAt:s.updatedAt,updatedAt:s.updatedAt};
   });
+  if(new Set(sessions.map(s=>s.id)).size!==sessions.length)throw Error('Duplicate session');
   clients.set(data.client,{seen:Date.now(),sessions});
   const pending = [];
   for (const [token,t] of tickets) {
@@ -81,9 +71,8 @@ function sync(data) {
   }
   return {pending};
 }
-async function focus(id) {
-  const session=snapshot().sessions.find(s=>s.id===id);
-  if (!session) return false;
+async function focus(session) {
+  const id=session.id;
   const [source,client,key] = id.split('/');
   if (source==='claude-desktop' && client.startsWith('local_') && uuid.test(client.slice(6))) {
     // The Desktop link uses the host's local_ ID, which differs from the CLI session UUID.
@@ -115,7 +104,7 @@ const server = http.createServer(async(req,res)=>{
   const reply = (code,data,mime='application/json')=>{
     res.writeHead(code,{'Content-Type':mime+'; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
       'X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"});
-    res.end(mime==='application/json'?JSON.stringify(data):data);
+    res.end(mime==='application/json'&&!Buffer.isBuffer(data)?JSON.stringify(data):data);
   };
   if (req.headers.host!==host) return reply(403,{error:'Host rejected'});
   const url=req.url;
@@ -131,8 +120,19 @@ const server = http.createServer(async(req,res)=>{
         return reply(200,{ok:true});
       }
       if (url==='/v1/sync' && req.headers.origin===extension) return reply(200,sync(await body(req)));
+      if(url==='/v1/chat' && req.headers.origin===origin) {
+        const {id,op,value,since}=await body(req);
+        snapshot();
+        const ok=activity.action(id,op,value,since);
+        return reply(ok?200:409,{ok});
+      }
       if (url==='/v1/focus' && req.headers.origin===origin) {
-        const result = await focus((await body(req)).id);
+        const {id}=await body(req);
+        const session=snapshot().sessions.find(s=>s.id===id);
+        const result=session?await focus(session):false;
+        if(result && (result===true || result.target==='session') && session.review) {
+          snapshot();activity.action(id,'review',false,session.stateSince);
+        }
         return reply(result?200:409,typeof result==='object'?result:{ok:result});
       }
     }
