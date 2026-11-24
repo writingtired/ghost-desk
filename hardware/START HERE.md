@@ -23,7 +23,7 @@ The paired PC sends the application over the existing encrypted local Wi-Fi conn
 
 A **Ready to review** row briefly inverts and shows floating eyes. The signal repeats every five seconds for 30 seconds, then every two seconds. The desktop and board use the same completion time. Open the chat or use **Mark reviewed** in the desktop sidebar to acknowledge it. **Mute alerts** silences the flash on both displays.
 
-The board refreshes about every two seconds while connected. **Current** uses the dock's priorities, including pins, waits, work in progress and turns ready to review. Each page holds four chats. Use **All chats** to include quiet conversations, and **Prev / Next** to change pages. The view and page selection are independent on the board and PC.
+The board refreshes about every two seconds while connected. **Current** uses the dock's priorities, including pins, waits, work in progress and turns ready to review. Each page holds four chats. Use **Other chats** to include quiet conversations and **Current work** to fold them away, and **Prev / Next** to change pages. The view and page selection are independent on the board and PC.
 
 Tap a chat row to open it on your computer. For an ambiguous Antigravity title, the display tells you to finish selection in the desktop picker. Provider tints and ghost faces follow the desktop artwork. The small LCD font abbreviates long text and substitutes unsupported characters. The full chat ID travels with the tap.
 
@@ -37,7 +37,7 @@ Tap a chat row to open it on your computer. For an ambiguous Antigravity title, 
 | Waiting for PC | Open the updated desktop app and keep the PC awake. The board shows its IP here. Put both devices on the same LAN and check guest/client isolation or a VPN that blocks local access. |
 | Worked before a router change | Ghost Desk tries the saved address and the board's local hostname. If local name resolution is unavailable and DHCP changed the address, run **Pair only** again. A DHCP reservation for the board also works. |
 | White, inverted or offset LCD | Run **3. Adjust display only** over USB. Try the other driver for a blank or garbled screen, or the matching inverted profile for negative colors. The selection persists after power loss. A driver change can prompt fresh touch calibration. If neither driver renders correctly, check the PCB model and panel markings before proceeding. |
-| No current work | Tap **All chats**. If that list is empty too, check the desktop panel's live list. |
+| No current work | Tap **Other chats**. If that list is empty too, check the desktop panel's live list. |
 
 For connection diagnostics on the PC, open [Ghost Desk board status](http://127.0.0.1:43821/v1/board). A connected board reports `"connected":true`. The PC initiates an encrypted TLS 1.2 connection to TCP 43822 on the board. This design works with the desktop bridge bound to loopback. Keep router port forwarding disabled for this local service.
 

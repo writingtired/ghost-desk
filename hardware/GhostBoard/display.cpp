@@ -1,5 +1,6 @@
 #include "board.h"
 #include "sprites.h"
+#include "brand.h"
 #include <SPI.h>
 #include <Adafruit_ILI9341.h>
 #include <Adafruit_ST7789.h>
@@ -51,6 +52,13 @@ static void text(int x,int y,const char *s,int size,uint16_t ink,int chars){
   int n=strlen(s);for(int i=0;i<n&&i<chars;i++)lcd->write(n>chars&&i==chars-1?'~':s[i]);
 }
 static uint16_t rgb(int r,int g,int b){return lcd->color565(r,g,b);}
+static void brand(int x,int y){
+  for(int j=0;j<16;j++)for(int i=0;i<16;i++){
+    char p=brandPixels[j][i];
+    if(p!=' ')lcd->drawPixel(x+i,y+j,p=='M'?rgb(157,225,197):p=='W'?0xffff:rgb(22,43,50));
+  }
+  text(x+22,y+1,"Ghost Desk",2,white,10);
+}
 static uint16_t hueColor(int deg){
   float h=(deg%360)/60.f,c=.4368f,x=c*(1-fabsf(fmodf(h,2)-1)),m=.72f-c/2;
   float r=h<1||h>=5?c:h<2||h>=4?x:0;
@@ -62,7 +70,7 @@ static void colors(const char *provider,uint16_t &badge,uint16_t &wash){
   bool clay=strstr(provider,"Claude")!=nullptr;
   bool blue=!strcmp(provider,"Antigravity")||!strcmp(provider,"Gemini");
   int r=clay?83:blue?51:44,g=clay?59:blue?65:73,b=clay?50:blue?91:62;
-  badge=rgb(r,g,b);wash=rgb((18+r)/2,(23+g)/2,(28+b)/2);
+  badge=rgb(r,g,b);wash=rgb((54+r)/4,(69+g)/4,(84+b)/4);
 }
 static bool flashed[4]={};
 static bool reviewFlash(const ChatRow &r){
@@ -87,20 +95,35 @@ static void drawRow(int i,bool flash){
     const ChatRow &r=view.rows[i];int y=27+i*43;uint16_t badge,wash;colors(r.provider,badge,wash);
     flashed[i]=flash;
     lcd->fillRect(0,y,320,42,flash?uint16_t(~wash):wash);ghost(i,false,flash);
-    text(44,y+3,r.title,2,flash?base:white,22);
+    int titleSize=strlen(r.title)<=14?2:1;
+    text(45,y+(titleSize==2?4:8),r.title,titleSize,flash?base:white,titleSize==2?14:28);
     char detail[90];snprintf(detail,sizeof(detail),"%s%s / %s",r.pin?"* ":"",r.provider,r.context);
-    int labelWidth=strlen(r.label)*6;
-    text(44,y+27,detail,1,flash?base:muted,(266-labelWidth)/6);text(314-labelWidth,y+27,r.label,1,flash?base:!strcmp(r.state,"attention")?amber:white,22);
+    text(45,y+28,detail,1,flash?base:muted,28);
+    bool wait=!strcmp(r.state,"attention"),review=!strcmp(r.state,"review"),work=!strcmp(r.state,"working");
+    uint16_t ink=flash?base:wait?amber:review?rgb(181,195,251):work?rgb(157,225,197):muted;
+    int sx=223,sy=y+20;
+    if(review){lcd->drawLine(sx,sy-3,sx+3,sy,ink);lcd->drawLine(sx+3,sy,sx,sy+3,ink);lcd->drawLine(sx,sy+3,sx-3,sy,ink);lcd->drawLine(sx-3,sy,sx,sy-3,ink);}
+    else if(wait)text(sx-2,sy-4,"!",1,ink,1);
+    else if(work)lcd->fillCircle(sx,sy,2,ink);
+    else lcd->drawFastHLine(sx-2,sy,5,ink);
+    text(232,sy-3,wait?"Needs you":review?"To review":r.label,1,ink,14);
 }
+static uint32_t connectedUntil;
 static void page(){
-  lcd->fillScreen(base);text(7,8,"GHOST DESK",2,white,12);
-  char count[24];snprintf(count,sizeof(count),"%d chats",view.total);text(235,11,count,1,muted,13);
+  lcd->fillScreen(base);brand(5,5);
+  char summary[28]="All quiet";
+  if(connectedUntil)strcpy(summary,"Connected");
+  else if(view.attention)snprintf(summary,sizeof(summary),"%d need%s you",view.attention,view.attention==1?"s":"");
+  else if(view.reviews)snprintf(summary,sizeof(summary),"%d to review",view.reviews);
+  else if(view.working)snprintf(summary,sizeof(summary),"%d working",view.working);
+  text(313-6*strlen(summary),10,summary,1,view.attention&&!connectedUntil?amber:rgb(157,225,197),24);
   for(int i=0;i<view.count;i++)drawRow(i,reviewFlash(view.rows[i]));
   if(!view.count)text(14,94,view.total?"No current work":"No recent chats",2,muted,24);
   lcd->drawFastHLine(0,201,320,0x42a8);
-  const char *left=view.all?"Current":"All chats";
-  text(8,215,left,1,white,10);text(124,215,"< Prev",1,view.page?white:muted,8);
-  char n[20];snprintf(n,sizeof(n),"%d/%d",view.page+1,view.pages);text(192,215,n,1,muted,9);
+  char left[22];snprintf(left,sizeof(left),view.all?"Current work":"Other chats  %d >",view.quiet);
+  text(8,208,left,1,white,16);text(124,215,"< Prev",1,view.page?white:muted,8);
+  char n[24];snprintf(n,sizeof(n),"%d chats",view.total);text(8,224,n,1,muted,14);
+  snprintf(n,sizeof(n),"%d/%d",view.page+1,view.pages);text(192,215,n,1,muted,9);
   text(263,215,"Next >",1,view.page+1<view.pages?white:muted,8);
   if(statusMsg[0]){lcd->fillRect(0,203,320,37,base);text(8,214,statusMsg,1,amber,50);}
 }
@@ -153,7 +176,7 @@ static void paint(int mode){
   lcd->fillScreen(base);
   if(mode==0){text(58,71,"Touch calibration",2,white,18);text(56,98,"Tap the cross with the stylus",1,muted,38);
     const Point p=mountedPoint(targets[step]);lcd->drawCircle(p.x,p.y,9,amber);lcd->drawFastHLine(p.x-12,p.y,25,amber);lcd->drawFastVLine(p.x,p.y-12,25,amber);return;}
-  text(16,20,"GHOST DESK",2,white,24);
+  brand(16,20);
   text(16,86,mode==1?"Pair over USB":mode==2?"Joining Wi-Fi":"Waiting for PC",2,white,24);
   text(16,122,mode==1?"Run Set up board.cmd on Windows.":mode==2?"Check 2.4 GHz Wi-Fi or pair again.":"Open the paired Ghost Desk app.",1,muted,48);
   text(16,184,hostName,1,muted,32);
@@ -205,6 +228,8 @@ void displayLoop(){
   if(digitalRead(0)==LOW){if(!bootSince)bootSince=millis();if(millis()-bootSince>1600&&calibrated()){step=0;dirty=true;}}
   else bootSince=0;
   int mode=!calibrated()?0:!cfg.ssid[0]?1:!WiFi.isConnected()?2:pcOnline?3:4;
+  if(mode==3&&lastMode!=3)connectedUntil=millis()+1200;
+  if(connectedUntil&&(int32_t)(millis()-connectedUntil)>=0){connectedUntil=0;dirty=true;}
   if(mode!=lastMode||dirty){paint(mode);lastMode=mode;dirty=false;}
   if(mode==3)for(int i=0;i<view.count;i++){
     bool flash=reviewFlash(view.rows[i]);

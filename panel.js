@@ -27,7 +27,7 @@ function render() {
   const doc=desk.ownerDocument,active=doc.activeElement?.dataset?.id;
   el('live').setAttribute('aria-pressed',String(!demo));el('demo').setAttribute('aria-pressed',String(demo));
   const attention=list.filter(s=>s.state==='attention').length,working=list.filter(s=>s.state==='working').length;
-  el('connection').textContent=demo?'Example chats · animation preview':!connected?'PC bridge offline':list.length+' chats · '+working+' working · '+attention+' need you';
+  el('connection').textContent=demo?'Example chats · animation preview':!connected?'PC bridge offline':attention?'!  '+attention+(attention===1?' needs you':' need you'):list.some(s=>s.review)?'◇  '+list.filter(s=>s.review).length+' to review':working?'●  '+working+' working':'All quiet';
   el('sources').textContent=demo?'Preview uses sample sessions.':!connected?'Open Ghost Desk to see live sessions.':
     ['Codex · '+data.sources.codex,'Claude Code · '+data.sources.claudeDesktop,'Antigravity · '+data.sources.antigravity,...(data.sources.browser?['Browser · '+data.sources.browser+' connected']:[])].join('\n');
   rows.replaceChildren();
@@ -39,7 +39,7 @@ function render() {
     b.title=s.title+'\n'+context(s)+'\n'+label(s)+' · '+age(s);
     drawGhost(b.querySelector('canvas').getContext('2d'),s);
     b.querySelector('strong').textContent=s.title;b.querySelector('.info').textContent=(s.pin?'★  ':'')+context(s);
-    b.querySelector('.state').textContent=label(s);if(s.state==='attention')b.querySelector('small').textContent=age(s);
+    b.querySelector('.state').textContent=(s.review?'◇  ':s.state==='attention'?'!  ':s.state==='working'?'●  ':'–  ')+label(s);if(s.state==='attention')b.querySelector('small').textContent=age(s);
     b.onclick=async()=>{try{const r=await post('focus',{id:s.id});el('notice').textContent=r.message||'';await refresh();}catch{el('notice').textContent='Could not open this chat.';}};
     wrap.append(b);
     if(!demo&&!b.disabled){
@@ -58,7 +58,7 @@ function render() {
     }
     rows.append(wrap);if(active===s.id)b.focus({preventScroll:true});
   }
-  el('fold').hidden=demo||(!quiet&&!all)||!connected;el('fold').textContent=all?'Show current work':'+'+quiet+' other chat'+(quiet===1?'':'s');
+  el('fold').hidden=demo||(!quiet&&!all)||!connected;el('fold').textContent=all?'Show current work':'Other chats   '+quiet+'  ›';
   if(!shown.length){
     const p=doc.createElement('p');p.className='placeholder';p.textContent=!connected?'Waiting for the PC bridge…':list.length?'All quiet.':'No recent chats detected.';rows.append(p);
   }

@@ -17,6 +17,9 @@ assert.throws(()=>imageBuild(Buffer.concat([payload,Buffer.alloc(32)])),/checksu
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ghost-board-test-')),key=randomBytes(32);
 const chats=Array.from({length:9},(_,i)=>({id:'sample/'+i,title:'Chat '+i,provider:'Codex',project:'Workspace',state:i<5?'working':'finished',review:i===6,hue:189,pin:i===7?1:0,updatedAt:i}));
 const first=boardPage(chats,false,0);
+assert.deepEqual([first.attention,first.reviews,first.working],[0,1,5]);
+const lastPage=boardPage([...chats,{...chats[0],id:'wait',state:'attention'}],true,2);
+assert.deepEqual([lastPage.attention,lastPage.reviews,lastPage.working],[1,1,5]);
 const review={...chats[6],stateSince:Date.now()-35000};
 const timed=boardPage([review],false,0);
 assert.equal(timed.items[0].reviewSince,review.stateSince);

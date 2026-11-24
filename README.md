@@ -2,16 +2,20 @@
 
 A Windows edge dock for local Codex, Claude Code in Claude Desktop, and Google Antigravity conversations. Each ghost represents a chat. Its movement shows activity, and its background color identifies the provider. The portable Windows x64 package includes the Node.js runtime.
 
+![Ghost Desk collapsed and expanded on Windows alongside a photo of the mounted ESP32](<Ghost Desk preview.png>)
+
 ## Open the panel
 
 1. On 64-bit Windows 10 or 11 with .NET Framework 4.8, extract **Ghost-Desk-Windows-x64.zip**. Open **Ghost Desk.exe** inside the extracted folder. A narrow ghost tab appears at the center of the right screen edge on first launch. The app starts its local bridge in the background.
 2. Drag the ghost strip to any monitor and release near its **top, bottom, left, or right** edge. The strip snaps to the nearest edge at the position where you drop it. Top and bottom use a horizontal strip. The dock stays inside the monitor's work area, clear of the taskbar, and remembers its monitor, edge, and position.
-3. Click the strip to expand it inward. Drag the **Ghost Desk** heading to move the expanded panel. Click a chat to open it. Choose **Hide** or press **Esc** to collapse it. The strip shows up to nine ghosts. Pinned chats keep their slots, followed by chats waiting for you, working chats and newly completed turns. Click **+N other chats** in the expanded dock to see the rest.
+3. Click the strip to expand it inward. Drag the **Ghost Desk** heading to move the expanded panel. Click a chat to open it. Use the collapse arrow or press **Esc** to return it to the edge. The strip shows up to nine ghosts. Pinned chats keep their slots, followed by chats waiting for you, working chats and newly completed turns. Click **Other chats** in the footer to see quiet conversations. The footer also shows the total.
 4. Open **···** or right-click the strip to choose an edge or display from a menu. **Hide to tray** hides the entire dock. Double-click the ghost in the Windows notification area to bring it back. **Quit Ghost Desk** closes the app and its bridge together.
 
 You can also open the running panel at **http://127.0.0.1:43821**. Choose **Float ↗** for the browser floating panel or **Preview** for sample chats. The Windows app runs in your signed-in desktop session and listens only on the loopback address. It starts when you launch it.
 
 ## Review and navigation
+
+The header prioritizes chats that need input, then chats ready for review, then working chats. A dot marks work, a diamond marks review and an exclamation mark signals input. Provider colors are strongest behind each ghost. On reconnect, the paired board briefly shows **Connected** in its header.
 
 On the Windows strip, expanded sidebar and physical ESP32, a chat ready for review briefly shows a pair of floating eyes on an inverted background. It flashes every five seconds for the first 30 seconds, then every two seconds until reviewed or active again. **Mute alerts** silences the flash for that chat. The Windows animation preference also controls flashing on the sidebar.
 
@@ -24,8 +28,6 @@ Right-click a row to **Pin chat** or **Mute alerts**. Pinned ghosts keep their s
 **Ctrl + Alt + G** opens the oldest chat waiting for input. With no waiting chat it opens the panel. Under **··· → Jump to oldest wait**, choose another shortcut or turn it off. Under **··· → Notify after 30s waiting**, enable Windows notification-area alerts. Alerts start off, respect per-chat mute, and fire once per observed wait. Click a live alert to go to its chat. Windows notification settings govern delivery.
 
 **··· → ESP32 display preview** opens a pixel-resolution simulator in the browser. Pick 240 × 240, 320 × 240 or 480 × 320. Try 5 or 15 sample chats or your live list. Tap a ghost for detail and page through crowded screens. The simulator and Windows dock draw from the same 16 × 16 sprite artwork. Samples stay separate from live chat actions.
-
-![Ghost Desk with sample chats](<Ghost Desk preview.png>)
 
 ## Build from source
 

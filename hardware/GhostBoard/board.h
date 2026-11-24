@@ -12,7 +12,7 @@ struct ChatRow {
   uint64_t reviewSince;
 };
 struct View {
-  int page,pages,total,quiet,count;
+  int page,pages,total,quiet,count,attention,working,reviews;
   bool all;
   ChatRow rows[4];
   char message[36];

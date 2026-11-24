@@ -102,6 +102,7 @@ static bool fetchPage(mbedtls_ssl_context *ssl,Channel &c,Query &q) {
   if(!pageDoc["items"].is<JsonArray>())return false;
   View view={};view.page=pageDoc["page"];view.pages=pageDoc["pages"];view.all=pageDoc["all"];
   view.total=pageDoc["total"];view.quiet=pageDoc["quiet"];
+  view.attention=pageDoc["attention"];view.working=pageDoc["working"];view.reviews=pageDoc["reviews"];
   view.serverNow=pageDoc["now"].as<uint64_t>();view.receivedMs=millis();
   strlcpy(view.message,pageDoc["msg"]|"",sizeof(view.message));
   for(JsonObject row:pageDoc["items"].as<JsonArray>()){

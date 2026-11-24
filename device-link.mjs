@@ -15,7 +15,9 @@ export function boardPage(sessions,all,page) {
     Number(!!b.review)-Number(!!a.review)||b.updatedAt-a.updatedAt||a.id.localeCompare(b.id));
   const pages=Math.max(1,Math.ceil(list.length/4));
   page=Math.min(Math.max(0,page),pages-1);
-  return {v:1,now:Date.now(),page,pages,all,total:sessions.length,quiet:sessions.filter(s=>!current(s)).length,items:list.slice(page*4,page*4+4).map(s=>({
+  return {v:1,now:Date.now(),page,pages,all,total:sessions.length,quiet:sessions.filter(s=>!current(s)).length,
+    attention:sessions.filter(s=>s.state==='attention').length,working:sessions.filter(s=>s.state==='working').length,
+    reviews:sessions.filter(s=>s.review).length,items:list.slice(page*4,page*4+4).map(s=>({
     id:s.id,title:ascii(s.title).slice(0,48),context:ascii(s.project||('Chat '+s.id.slice(-6))).slice(0,32),provider:s.provider,
     reviewSince:s.review&&!s.muted?s.stateSince:undefined,
     hue:s.hue,pin:!!s.pin,state:s.review?'review':s.state,label:s.review?'Ready to review':s.reason==='approval'?'Approval requested':s.reason==='question'?'Question waiting':labels[s.state]||'Unknown'

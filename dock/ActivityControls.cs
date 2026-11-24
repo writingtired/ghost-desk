@@ -56,16 +56,26 @@ namespace GhostDesk {
             return slots.Take(Array.FindLastIndex(slots,c=>c!=null)+1).ToArray();
         }
         Chat[] VisibleRows() {
-            if(frozenRows==null)return chats.Where(c=>allChats||Current(c)).ToArray();
+            if(frozenRows==null)return chats.Where(c=>allChats||Current(c)||settling.ContainsKey(c.id)).ToArray();
             var index=chats.ToDictionary(c=>c.id);
             return frozenRows.Select(c=>index.ContainsKey(c.id)?index[c.id]:c).ToArray();
         }
         void AddFold() {
             int quiet=chats.Count(c=>!Current(c));
-            if(quiet==0 && !allChats)return;
+            string total=chats.Length+(chats.Length==1?" chat":" chats");
+            if(quiet==0 && !allChats){
+                var caption=Text(total,11,Muted);caption.Margin=new Thickness(5,8,5,0);footer.Child=caption;return;
+            }
             string label=allChats?"Show current work":"+"+quiet+" other chat"+(quiet==1?"":"s");
-            var fold=ButtonOf(label);fold.Padding=new Thickness(7,8,7,8);fold.Content=Text(label,12,Muted);
-            fold.Click+=(s,e)=>{allChats=!allChats;frozenRows=null;Draw();Place();};rows.Children.Add(fold);
+            var fold=ButtonOf(label);fold.Padding=new Thickness(5,8,4,4);
+            var grid=new DockPanel();
+            var end=Text(quiet+"   "+(allChats?"⌄":"›"),14,White);
+            DockPanel.SetDock(end,Dock.Right);grid.Children.Add(end);
+            var left=new StackPanel{Orientation=Orientation.Horizontal};
+            left.Children.Add(Text(allChats?"Current work":"Other chats",13,White));
+            var captionTotal=Text(total+" total",11,Muted);captionTotal.Margin=new Thickness(12,0,0,0);
+            left.Children.Add(captionTotal);grid.Children.Add(left);fold.Content=grid;
+            fold.Click+=(s,e)=>{allChats=!allChats;frozenRows=null;Draw();Place();};footer.Child=fold;
         }
         string ControlsFile {get{return Path.ChangeExtension(prefs,"controls");}}
         void LoadControls() {

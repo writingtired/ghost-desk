@@ -25,7 +25,7 @@ const clients = new Map(), tickets = new Map();
 const dataDir=process.env.GHOST_DESK_DATA || path.join(process.env.LOCALAPPDATA||os.homedir(),'Ghost Desk');
 const activity=createActivity(path.join(dataDir,'activity-'+port+'.json'));
 const boardUpdater=createBoardUpdater();
-const files = new Map([['/',['index.html','text/html']],['/panel.css',['panel.css','text/css']],['/panel.js',['panel.js','text/javascript']],['/esp32',['display.html','text/html']],['/display.js',['display.js','text/javascript']],['/sprites.json',['sprites.json','application/json']],['/sprites.js',['sprites.js','text/javascript']]]);
+const files = new Map([['/ghost-mark.png',['ghost-mark.png','image/png']],['/',['index.html','text/html']],['/panel.css',['panel.css','text/css']],['/panel.js',['panel.js','text/javascript']],['/esp32',['display.html','text/html']],['/display.js',['display.js','text/javascript']],['/sprites.json',['sprites.json','application/json']],['/sprites.js',['sprites.js','text/javascript']]]);
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 
 async function openDock() {
