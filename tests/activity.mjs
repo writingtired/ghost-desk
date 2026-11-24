@@ -32,9 +32,14 @@ try {
   process.env.CODEX_HOME=dir;
   const id=randomUUID(),logs=path.join(dir,'sessions'),log=path.join(logs,'rollout-'+id+'.jsonl');
   fs.mkdirSync(logs);
+  // New guardian workers may appear before their title is indexed.
+  for(let i=0;i<49;i++)fs.writeFileSync(path.join(logs,'rollout-'+randomUUID()+'.jsonl'),
+    JSON.stringify({type:'session_meta',payload:{cwd:'C:/Work/Pocket Console',source:{subagent:{other:'guardian'}}}})+'\n');
+  fs.writeFileSync(path.join(dir,'session_index.jsonl'),JSON.stringify({id,thread_name:'Guardian review'})+'\n');
   const write=(type,payload)=>fs.appendFileSync(log,JSON.stringify({timestamp:new Date().toISOString(),type,payload})+'\n');
   write('session_meta',{cwd:'C:/Work/Pocket Console'});write('event_msg',{type:'task_started'});
   const {codexSnapshot}=await import('../codex.mjs');
+  assert.deepEqual(codexSnapshot().sessions.map(s=>s.id),['codex/'+id]);
   const sample=()=>codexSnapshot().sessions[0];
   assert.equal(sample().project,'Pocket Console');
   write('response_item',{type:'function_call',name:'functions.request_user_input',call_id:'ask'});

@@ -9,12 +9,15 @@ struct Credentials {
 struct ChatRow {
   char id[100],title[49],context[33],provider[16],state[12],label[24];
   int hue; bool pin;
+  uint64_t reviewSince;
 };
 struct View {
   int page,pages,total,quiet,count;
   bool all;
   ChatRow rows[4];
   char message[36];
+  uint64_t serverNow;
+  uint32_t receivedMs;
 };
 struct Query {int page;bool all;char open[100];};
 extern Credentials cfg;

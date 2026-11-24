@@ -17,6 +17,12 @@ assert.throws(()=>imageBuild(Buffer.concat([payload,Buffer.alloc(32)])),/checksu
 const dir=fs.mkdtempSync(path.join(os.tmpdir(),'ghost-board-test-')),key=randomBytes(32);
 const chats=Array.from({length:9},(_,i)=>({id:'sample/'+i,title:'Chat '+i,provider:'Codex',project:'Workspace',state:i<5?'working':'finished',review:i===6,hue:189,pin:i===7?1:0,updatedAt:i}));
 const first=boardPage(chats,false,0);
+const review={...chats[6],stateSince:Date.now()-35000};
+const timed=boardPage([review],false,0);
+assert.equal(timed.items[0].reviewSince,review.stateSince);
+assert.ok(timed.now>=review.stateSince+35000);
+assert.equal(boardPage([{...review,muted:true}],false,0).items[0].reviewSince,undefined);
+assert.equal(boardPage([{...review,review:false}],true,0).items[0].reviewSince,undefined);
 assert.equal(first.items.length,4);assert.equal(first.quiet,2);assert.equal(first.pages,2);assert.equal(first.items[0].id,'sample/7');
 assert.equal(boardPage(chats,true,100).page,2);
 let opened=[],linked=false,stop,client;

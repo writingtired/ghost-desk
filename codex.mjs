@@ -9,6 +9,7 @@ const root = path.join(home, 'sessions');
 const day = 86400000;
 const limit = 1024 * 1024;
 const cache = new Map();
+const headers = new Map();
 let indexStamp = -1, names = new Map(), scanAt = 0, recent = [];
 const uuidAtEnd = /([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\.jsonl$/i;
 const boundaries=new Map([['task_started','working'],['task_complete','finished'],['turn_aborted','stopped']]);
@@ -66,15 +67,20 @@ function readNames() {
   } catch { /* A fresh installation may not have a title index yet. */ }
 }
 
-function initialProject(file) {
+function sessionHeader(file) {
+  if(headers.has(file))return headers.get(file);
   const fd=fs.openSync(file,'r');
   try {
     const buffer=Buffer.alloc(65536),count=fs.readSync(fd,buffer,0,buffer.length,0);
     const first=buffer.toString('utf8',0,count).split('\n',1)[0];
     // Long session headers may include instructions after the working directory.
-    const cwd=first.match(/"cwd"\s*:\s*("(?:\\.|[^"\\])*")/);
-    return cwd?projectName(JSON.parse(cwd[1])):'';
-  } catch {return '';} finally {fs.closeSync(fd);}
+    const prefix=first.split(/,\s*"base_instructions"\s*:/,1)[0];
+    const cwd=prefix.match(/"cwd"\s*:\s*("(?:\\.|[^"\\])*")/);
+    const guardian=/"source"\s*:\s*\{\s*"subagent"\s*:\s*\{\s*"other"\s*:\s*"guardian"/i.test(prefix);
+    const header={project:cwd?projectName(JSON.parse(cwd[1])):'',guardian};
+    if(first.trimEnd().endsWith('}')||prefix!==first)headers.set(file,header);
+    return header;
+  } catch {return {project:'',guardian:false};} finally {fs.closeSync(fd);}
 }
 
 function applyRecord(previous,r,time) {
@@ -98,7 +104,7 @@ function applyRecord(previous,r,time) {
 function inspect({id,full}) {
   const size = fs.statSync(full).size;
   let previous = cache.get(id);
-  if (!previous || previous.offset > size) previous = {offset:0,state:'unknown',seen:0,stateAt:0,waits:new Map(),project:initialProject(full)};
+  if (!previous || previous.offset > size) previous = {offset:0,state:'unknown',seen:0,stateAt:0,waits:new Map(),project:sessionHeader(full).project};
   if (size !== previous.offset) {
     const offset = Math.max(previous.offset,size-limit);
     const bytes = Buffer.alloc(size-offset);
@@ -141,7 +147,13 @@ export function codexSnapshot() {
     if (Date.now()-scanAt > 12000) {
       const found = [];
       discover(root,found);
-      recent = found.sort((a,b)=>b.stamp-a.stamp).slice(0,48);
+      const liveFiles=new Set(found.map(x=>x.full));
+      for(const file of headers.keys())if(!liveFiles.has(file))headers.delete(file);
+      recent=[];
+      for(const item of found.sort((a,b)=>b.stamp-a.stamp)){
+        try{if(!sessionHeader(item.full).guardian)recent.push(item);}catch{}
+        if(recent.length===48)break;
+      }
       const ids = new Set(recent.map(x=>x.id));
       for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
       readNames();

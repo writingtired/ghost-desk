@@ -64,28 +64,38 @@ static void colors(const char *provider,uint16_t &badge,uint16_t &wash){
   int r=clay?83:blue?51:44,g=clay?59:blue?65:73,b=clay?50:blue?91:62;
   badge=rgb(r,g,b);wash=rgb((18+r)/2,(23+g)/2,(28+b)/2);
 }
-static void ghost(int row,bool frame){
+static bool flashed[4]={};
+static bool reviewFlash(const ChatRow &r){
+  if(!r.reviewSince||!view.serverNow)return false;
+  uint64_t now=view.serverNow+uint32_t(millis()-view.receivedMs);
+  if(now<r.reviewSince)return false;
+  uint64_t age=now-r.reviewSince;
+  return age%(age<30000?5000:2000)<750;
+}
+static void ghost(int row,bool frame,bool eaten=false){
   const ChatRow &r=view.rows[row];uint16_t badge,wash;colors(r.provider,badge,wash);
-  tile.fillScreen(badge);
+  tile.fillScreen(eaten?uint16_t(~badge):badge);
   int face=0;while(face<6 && strcmp(r.state,faces[face]))face++;
   int dx=frame&&face==2?2:0,dy=frame&&face==1?-2:0;
   int ox=8+dx,oy=8+dy;uint16_t body=face==6?0x8410:hueColor(r.hue);
-  for(int y=0;y<16;y++)for(int x=0;x<16;x++)if(ghostMask[y]&(0x8000>>x))tile.drawPixel(ox+x,oy+y,body);
+  if(!eaten)for(int y=0;y<16;y++)for(int x=0;x<16;x++)if(ghostMask[y]&(0x8000>>x))tile.drawPixel(ox+x,oy+y,body);
   const uint16_t inks[]={0,0x18c8,0xffff,amber};
-  for(const auto &p:marks[face])if(p.w)tile.fillRect(ox+p.x,oy+p.y,p.w,p.h,inks[p.ink]);
+  for(const auto &p:marks[eaten?7:face])if(p.w)tile.fillRect(ox+p.x,oy+p.y,p.w,p.h,inks[p.ink]);
   lcd->drawRGBBitmap(5,32+row*43,tile.getBuffer(),32,32);
+}
+static void drawRow(int i,bool flash){
+    const ChatRow &r=view.rows[i];int y=27+i*43;uint16_t badge,wash;colors(r.provider,badge,wash);
+    flashed[i]=flash;
+    lcd->fillRect(0,y,320,42,flash?uint16_t(~wash):wash);ghost(i,false,flash);
+    text(44,y+3,r.title,2,flash?base:white,22);
+    char detail[90];snprintf(detail,sizeof(detail),"%s%s / %s",r.pin?"* ":"",r.provider,r.context);
+    int labelWidth=strlen(r.label)*6;
+    text(44,y+27,detail,1,flash?base:muted,(266-labelWidth)/6);text(314-labelWidth,y+27,r.label,1,flash?base:!strcmp(r.state,"attention")?amber:white,22);
 }
 static void page(){
   lcd->fillScreen(base);text(7,8,"GHOST DESK",2,white,12);
   char count[24];snprintf(count,sizeof(count),"%d chats",view.total);text(235,11,count,1,muted,13);
-  for(int i=0;i<view.count;i++){
-    const ChatRow &r=view.rows[i];int y=27+i*43;uint16_t badge,wash;colors(r.provider,badge,wash);
-    lcd->fillRect(0,y,320,42,wash);ghost(i,false);
-    text(44,y+3,r.title,2,white,22);
-    char detail[90];snprintf(detail,sizeof(detail),"%s%s / %s",r.pin?"* ":"",r.provider,r.context);
-    int labelWidth=strlen(r.label)*6;
-    text(44,y+27,detail,1,muted,(266-labelWidth)/6);text(314-labelWidth,y+27,r.label,1,!strcmp(r.state,"attention")?amber:white,22);
-  }
+  for(int i=0;i<view.count;i++)drawRow(i,reviewFlash(view.rows[i]));
   if(!view.count)text(14,94,view.total?"No current work":"No recent chats",2,muted,24);
   lcd->drawFastHLine(0,201,320,0x42a8);
   const char *left=view.all?"Current":"All chats";
@@ -184,7 +194,8 @@ void displayLoop(){
   if(shownUpdate>=0){shownUpdate=-1;dirty=true;}
   View next;
   if(xQueueReceive(views,&next,0)==pdTRUE){
-    if(memcmp(&next,&view,sizeof(view))||pending){view=next;dirty=true;}
+    if(memcmp(&next,&view,offsetof(View,serverNow))||pending)dirty=true;
+    view=next;
     if(next.message[0]){strlcpy(statusMsg,next.message,sizeof(statusMsg));msgUntil=millis()+1800;}
     else if(pending){statusMsg[0]=0;}
     pending=false;
@@ -195,6 +206,10 @@ void displayLoop(){
   else bootSince=0;
   int mode=!calibrated()?0:!cfg.ssid[0]?1:!WiFi.isConnected()?2:pcOnline?3:4;
   if(mode!=lastMode||dirty){paint(mode);lastMode=mode;dirty=false;}
+  if(mode==3)for(int i=0;i<view.count;i++){
+    bool flash=reviewFlash(view.rows[i]);
+    if(flashed[i]!=flash)drawRow(i,flash);
+  }
   if(mode==3&&millis()-lastAnim>=360){lastAnim=millis();for(int i=0;i<view.count;i++)if(!strcmp(view.rows[i].state,"working")||!strcmp(view.rows[i].state,"attention"))ghost(i,(lastAnim/360)%2);}
   if(digitalRead(tIrq)==LOW){
     if(!held){held=true;downAt=millis();finger=sample();Point p;downControl=calibrated()&&mapTouch(finger,p)?control(p):-1;

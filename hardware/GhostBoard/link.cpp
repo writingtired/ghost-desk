@@ -102,6 +102,7 @@ static bool fetchPage(mbedtls_ssl_context *ssl,Channel &c,Query &q) {
   if(!pageDoc["items"].is<JsonArray>())return false;
   View view={};view.page=pageDoc["page"];view.pages=pageDoc["pages"];view.all=pageDoc["all"];
   view.total=pageDoc["total"];view.quiet=pageDoc["quiet"];
+  view.serverNow=pageDoc["now"].as<uint64_t>();view.receivedMs=millis();
   strlcpy(view.message,pageDoc["msg"]|"",sizeof(view.message));
   for(JsonObject row:pageDoc["items"].as<JsonArray>()){
     if(view.count==4)break;ChatRow &r=view.rows[view.count++];
@@ -109,6 +110,7 @@ static bool fetchPage(mbedtls_ssl_context *ssl,Channel &c,Query &q) {
     strlcpy(r.context,row["context"]|"",sizeof(r.context));strlcpy(r.provider,row["provider"]|"",sizeof(r.provider));
     strlcpy(r.label,row["label"]|"",sizeof(r.label));strlcpy(r.state,row["state"]|"unknown",sizeof(r.state));
     r.hue=row["hue"];r.pin=row["pin"];
+    r.reviewSince=row["reviewSince"].as<uint64_t>();
   }
   q.page=view.page;q.open[0]=0;
   xQueueOverwrite(views,&view);pcOnline=true;

@@ -70,6 +70,8 @@ namespace GhostDesk {
         }
         readonly Brush body;
         readonly string state;
+        bool eaten;
+        internal void SetEaten(bool value) {eaten=value;InvalidateVisual();}
         internal Ghost(Chat chat, int size) {
             Width=Height=size; state=chat.review?"review":chat.state; RenderOptions.SetEdgeMode(this,EdgeMode.Aliased);
             body=state=="unknown" ? Brushes.SlateGray : Hue(chat.hue);
@@ -96,7 +98,7 @@ namespace GhostDesk {
         }
         protected override void OnRender(DrawingContext dc) {
             double unit=Width/16;
-            for(int y=0;y<Atlas.body.Length;y++) {
+            for(int y=0;!eaten && y<Atlas.body.Length;y++) {
                 for(int x=0;x<16;) {
                     if(Atlas.body[y][x]!='#') {x++; continue;}
                     int start=x++;
@@ -105,7 +107,7 @@ namespace GhostDesk {
                 }
             }
             object[][] face;
-            if(!Atlas.faces.TryGetValue(state??"unknown",out face))face=Atlas.faces["unknown"];
+            if(!Atlas.faces.TryGetValue(eaten?"eaten":state??"unknown",out face))face=Atlas.faces["unknown"];
             foreach(var mark in face) {
                 string ink=(string)mark[4];
                 dc.DrawRectangle(ink=="ink"?Brushes.MidnightBlue:ink=="amber"?Brushes.Gold:Brushes.White,null,
@@ -124,6 +126,8 @@ namespace GhostDesk {
         readonly HttpClient http;
         readonly JavaScriptSerializer json=new JavaScriptSerializer();
         readonly DispatcherTimer poll=new DispatcherTimer(), slide=new DispatcherTimer();
+        readonly DispatcherTimer reviewTimer=new DispatcherTimer{Interval=TimeSpan.FromMilliseconds(100)};
+        readonly List<Action<long>> reviewTiles=new List<Action<long>>();
         readonly Stopwatch elapsed=new Stopwatch();
         readonly Border frame=new Border();
         readonly Grid surface=new Grid(), detail=new Grid();
@@ -186,13 +190,31 @@ namespace GhostDesk {
                 default: return Line;
             }
         }
-        Border GhostTile(Chat chat,bool compact) {
+        static Brush Inverse(Brush brush) {
+            var c=((SolidColorBrush)brush).Color;
+            var inverse=new SolidColorBrush(Color.FromRgb((byte)(255-c.R),(byte)(255-c.G),(byte)(255-c.B)));
+            inverse.Freeze();return inverse;
+        }
+        Border GhostTile(Chat chat,bool compact,Action<bool> paintRow=null) {
             var tile=new Border {
                 Width=compact?34:39, Height=compact?28:37, Background=ProviderTint(chat.provider),
                 CornerRadius=new CornerRadius(6), HorizontalAlignment=HorizontalAlignment.Center,
                 VerticalAlignment=VerticalAlignment.Center,
                 Child=new Ghost(chat,compact?21:25) {HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center}
             };
+            if(chat.review && !chat.muted && chat.stateSince>0 && SystemParameters.ClientAreaAnimation) {
+                var normal=tile.Background;var inverse=Inverse(normal);var sprite=(Ghost)tile.Child;
+                bool painted=false;
+                Action<long> tick=now=>{
+                    long age=now-chat.stateSince;
+                    bool flash=age>=0 && age%(age<30000?5000:2000)<750
+                        && chats.Any(c=>c.id==chat.id && c.review && !c.muted && c.stateSince==chat.stateSince);
+                    if(flash==painted)return;
+                    painted=flash;tile.Background=flash?inverse:normal;sprite.SetEaten(flash);
+                    if(paintRow!=null)paintRow(flash);
+                };
+                reviewTiles.Add(tick);tick(Now);
+            }
             if(compact) AttachPreview(tile,chat);
             return tile;
         }
@@ -235,13 +257,14 @@ namespace GhostDesk {
             SourceInitialized+=(s,e)=>{hwnd=new WindowInteropHelper(this).Handle;InitHotkey();Place();};
             Loaded+=async(s,e)=>{Draw();Place();poll.Start();await Poll();};
             poll.Interval=TimeSpan.FromMilliseconds(2100);poll.Tick+=async(s,e)=>await Poll();
+            reviewTimer.Tick+=(s,e)=>{long now=Now;foreach(var tick in reviewTiles)tick(now);};
             slide.Interval=TimeSpan.FromMilliseconds(16);
             slide.Tick+=(s,e)=>{
                 double t=Math.Min(1,elapsed.Elapsed.TotalMilliseconds/165.0);
                 spread=from+(to-from)*(1-Math.Pow(1-t,3)); Place();
                 if(t>=1) slide.Stop();
             };
-            Closed+=(s,e)=>{closed=true;ReleaseHotkey();poll.Stop();slide.Stop();http.Dispose();};
+            Closed+=(s,e)=>{closed=true;ReleaseHotkey();poll.Stop();slide.Stop();reviewTimer.Stop();http.Dispose();};
         }
         void BuildDetail() {
             detail.Margin=new Thickness(14,14,14,10);
@@ -391,6 +414,7 @@ namespace GhostDesk {
             Place();
         }
         void Draw() {
+            reviewTiles.Clear();
             string focused=(System.Windows.Input.Keyboard.FocusedElement as Button ?? rail).Tag as string;
             double offset=scroll.VerticalOffset;
             railItems.Children.Clear();rows.Children.Clear();
@@ -423,19 +447,24 @@ namespace GhostDesk {
                 b.IsEnabled=chats.Any(c=>c.id==chat.id);b.Background=wash;b.Tag=chat.id;b.Padding=new Thickness(5,0,6,0);
                 AttachPreview(b,chat);AttachChatMenu(b,chat);
                 var line=new DockPanel{Height=53,LastChildFill=true};
-                var icon=GhostTile(chat,false);icon.Margin=new Thickness(0,0,10,0);
-                DockPanel.SetDock(icon,Dock.Left);line.Children.Add(icon);
                 var status=Text(Label(chat)+(chat.state=="attention"?"\n"+Age(chat):""),11,chat.state=="attention"?Amber:chat.review?Lime:Muted);
                 status.TextAlignment=TextAlignment.Right;status.Margin=new Thickness(7,0,0,0);
                 DockPanel.SetDock(status,Dock.Right);line.Children.Add(status);
                 var copy=new StackPanel{VerticalAlignment=VerticalAlignment.Center};
                 var title=Text(chat.title,14,White);title.FontWeight=FontWeights.SemiBold;copy.Children.Add(title);
-                copy.Children.Add(Text((chat.pin>0?"★  ":"")+Context(chat),12,Muted));
+                var context=Text((chat.pin>0?"★  ":"")+Context(chat),12,Muted);copy.Children.Add(context);
+                var flashFill=chat.review?Inverse(tint):null;
+                var icon=GhostTile(chat,false,flash=>{
+                    line.Background=flash?flashFill:null;
+                    title.Foreground=flash?Base:White;context.Foreground=flash?Base:Muted;status.Foreground=flash?Base:Lime;
+                });icon.Margin=new Thickness(0,0,10,0);
+                DockPanel.SetDock(icon,Dock.Left);line.Children.Insert(0,icon);
                 line.Children.Add(copy);b.Content=new Border{BorderThickness=new Thickness(0,1,0,0),BorderBrush=Line,Child=line};
                 b.Click+=async(s,e)=>await Open(chat);rows.Children.Add(b);
                 if(focused==chat.id && expanded) b.Focus();
             }
             AddFold();scroll.ScrollToVerticalOffset(offset);
+            reviewTimer.IsEnabled=reviewTiles.Count>0;
         }
         void Message(string message) {notice.Text=message??"";notice.Visibility=String.IsNullOrEmpty(message)?Visibility.Collapsed:Visibility.Visible;Place();}
         async Task Open(Chat chat) {

@@ -21,6 +21,8 @@ The paired PC sends the application over the existing encrypted local Wi-Fi conn
 
 ## Using the display
 
+A **Ready to review** row briefly inverts and shows floating eyes. The signal repeats every five seconds for 30 seconds, then every two seconds. The desktop and board use the same completion time. Open the chat or use **Mark reviewed** in the desktop sidebar to acknowledge it. **Mute alerts** silences the flash on both displays.
+
 The board refreshes about every two seconds while connected. **Current** uses the dock's priorities, including pins, waits, work in progress and turns ready to review. Each page holds four chats. Use **All chats** to include quiet conversations, and **Prev / Next** to change pages. The view and page selection are independent on the board and PC.
 
 Tap a chat row to open it on your computer. For an ambiguous Antigravity title, the display tells you to finish selection in the desktop picker. Provider tints and ghost faces follow the desktop artwork. The small LCD font abbreviates long text and substitutes unsupported characters. The full chat ID travels with the tap.

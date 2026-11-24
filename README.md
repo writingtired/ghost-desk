@@ -13,6 +13,10 @@ You can also open the running panel at **http://127.0.0.1:43821**. Choose **Floa
 
 ## Review and navigation
 
+On the Windows strip, expanded sidebar and physical ESP32, a chat ready for review briefly shows a pair of floating eyes on an inverted background. It flashes every five seconds for the first 30 seconds, then every two seconds until reviewed or active again. **Mute alerts** silences the flash for that chat. The Windows animation preference also controls flashing on the sidebar.
+
+Ghost Desk filters Codex's internal Guardian Review sessions before it counts chats, sends notifications or populates the board. It identifies these sessions by their Codex metadata, so a regular conversation can still be named Guardian Review.
+
 A newly observed completion gets **Ready to review**, open eyes and a white corner dot. Open the chat through Ghost Desk or right-click its row and choose **Mark reviewed**. If Antigravity opens its picker for manual selection, the dot stays until you mark that chat reviewed. Chats already idle on first observation start quietly. Each row shows the provider and project below its title. When the client supplies no project, a short chat ID helps distinguish duplicate names.
 
 Right-click a row to **Pin chat** or **Mute alerts**. Pinned ghosts keep their strip positions across restarts. The list holds its order while the pointer is over it. Hover over a ghost to see a preview that opens inward from the edge with its title, project, status and elapsed time.
