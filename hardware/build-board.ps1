@@ -15,6 +15,9 @@ $out=Join-Path $OutputDirectory 'GhostDesk-CYD-2USB.bin'
 & $tool --chip esp32 merge_bin -o $out --flash_mode dio --flash_freq 40m --flash_size 4MB 0x1000 (Join-Path $BuildDirectory 'GhostBoard.ino.bootloader.bin') 0x8000 (Join-Path $BuildDirectory 'GhostBoard.ino.partitions.bin') 0xe000 (Join-Path $platform 'tools/partitions/boot_app0.bin') 0x10000 (Join-Path $BuildDirectory 'GhostBoard.ino.bin')
 if($LASTEXITCODE){throw 'Firmware merge failed.'}
 $hash=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant()
+$app=Join-Path $OutputDirectory 'GhostDesk-CYD-2USB.ota.bin'
+Copy-Item -LiteralPath (Join-Path $BuildDirectory 'GhostBoard.ino.bin') -Destination $app -Force
+[IO.File]::WriteAllText((Join-Path $OutputDirectory 'application.sha256'),(Get-FileHash -LiteralPath $app -Algorithm SHA256).Hash.ToLowerInvariant()+"  GhostDesk-CYD-2USB.ota.bin")
 [IO.File]::WriteAllText((Join-Path $OutputDirectory 'firmware.sha256'),"$hash  GhostDesk-CYD-2USB.bin")
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows/Set up board.cmd'),(Join-Path $PSScriptRoot 'windows/setup-board.ps1'),(Join-Path $PSScriptRoot 'START HERE.md') -Destination $OutputDirectory -Force
 Write-Host "Built $out for flash address 0x0"

@@ -167,6 +167,19 @@ void displaySetup(){
   p.end();
 }
 void displayLoop(){
+  static int shownUpdate=-1;
+  int percent=updatePercent;
+  if(percent>=0){
+    if(shownUpdate<0){lcd->fillScreen(base);text(22,86,"Updating display",2,white,22);text(22,141,"Keep the board powered.",1,muted,40);}
+    if(shownUpdate!=percent){
+      lcd->fillRect(22,118,276,7,muted);lcd->fillRect(22,118,276*percent/100,7,amber);
+      char label[8];snprintf(label,sizeof(label),"%d%%",percent);
+      lcd->fillRect(254,87,48,18,base);text(254,87,label,2,white,4);
+      shownUpdate=percent;
+    }
+    held=false;return;
+  }
+  if(shownUpdate>=0){shownUpdate=-1;dirty=true;}
   View next;
   if(xQueueReceive(views,&next,0)==pdTRUE){
     if(memcmp(&next,&view,sizeof(view))||pending){view=next;dirty=true;}

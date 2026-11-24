@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import {createActivity} from './activity.mjs';
 import {startDeviceLink} from './device-link.mjs';
+import {createBoardUpdater,maxImageSize} from './board-update.mjs';
 import {randomUUID} from 'node:crypto';
 import {execFile,spawn} from 'node:child_process';
 import {once} from 'node:events';
@@ -23,7 +24,7 @@ const providers = new Set(['Claude','Gemini','ChatGPT']);
 const clients = new Map(), tickets = new Map();
 const dataDir=process.env.GHOST_DESK_DATA || path.join(process.env.LOCALAPPDATA||os.homedir(),'Ghost Desk');
 const activity=createActivity(path.join(dataDir,'activity-'+port+'.json'));
-let boardConnected=false;
+const boardUpdater=createBoardUpdater();
 const files = new Map([['/',['index.html','text/html']],['/panel.css',['panel.css','text/css']],['/panel.js',['panel.js','text/javascript']],['/esp32',['display.html','text/html']],['/display.js',['display.js','text/javascript']],['/sprites.json',['sprites.json','application/json']],['/sprites.js',['sprites.js','text/javascript']]]);
 const uuid = /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i;
 
@@ -124,7 +125,18 @@ const server = http.createServer(async(req,res)=>{
       return reply(200,fs.readFileSync(new URL('./'+file,import.meta.url)),mime);
     }
     if (req.method==='GET' && url==='/v1/sessions') return reply(200,snapshot());
-    if (req.method==='GET' && url==='/v1/board') return reply(200,{version:1,connected:boardConnected});
+    if (req.method==='GET' && url==='/v1/board') return reply(200,{version:1,...boardUpdater.info()});
+    if (req.method==='POST' && url==='/v1/board/update' && req.headers.origin===origin &&
+        req.headers['content-type']==='application/octet-stream') {
+      if(Number(req.headers['content-length'])>maxImageSize)return reply(413,{error:'Firmware exceeds the display slot size.'});
+      const chunks=[];let size=0;
+      for await(const chunk of req){
+        size+=chunk.length;if(size>maxImageSize)return reply(413,{error:'Firmware exceeds the display slot size.'});
+        chunks.push(chunk);
+      }
+      try{return reply(202,boardUpdater.queue(Buffer.concat(chunks)));}
+      catch(error){return reply(409,{error:error.message});}
+    }
     if (req.method==='POST' && req.headers['content-type']?.startsWith('application/json')) {
       if (url==='/v1/dock' && req.headers.origin===origin) {
         await openDock();
@@ -157,7 +169,7 @@ server.on('error',async e=>{
 });
 server.listen(port,'127.0.0.1',async()=>{
   if(port===43821) {
-    const stop=startDeviceLink({dir:dataDir,sessions:()=>snapshot().sessions,focus:openSession,status:connected=>{boardConnected=connected;}});
+    const stop=startDeviceLink({dir:dataDir,sessions:()=>snapshot().sessions,focus:openSession,updater:boardUpdater});
     server.once('close',stop);
   }
   if(process.argv.includes('--managed')) {

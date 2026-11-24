@@ -108,6 +108,8 @@ namespace GhostDesk {
                 try {Process.Start(new ProcessStartInfo(new Uri(http.BaseAddress,"esp32").AbsoluteUri){UseShellExecute=true});}
                 catch(Exception){Message("Open "+new Uri(http.BaseAddress,"esp32")+" for the display preview.");}
             };menu.Items.Add(preview);
+            var update=new MenuItem{Header="Update display…"};
+            update.Click+=(s,e)=>ShowDisplayUpdater();menu.Items.Add(update);
             if(!managed)return;
             var keys=new MenuItem{Header="Jump to oldest wait"};
             for(int i=0;i<ShortcutNames.Length;i++){

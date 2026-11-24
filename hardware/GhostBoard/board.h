@@ -21,6 +21,7 @@ extern Credentials cfg;
 extern char hostName[24];
 extern QueueHandle_t views,queries;
 extern volatile bool pcOnline;
+extern volatile int updatePercent;
 void networkLoop(void*);
 void displaySetup();
 bool panelCommand(const String &line);

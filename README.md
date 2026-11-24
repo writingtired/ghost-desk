@@ -83,6 +83,9 @@ The PC owns provider integration, chat lookup, and window activation. Both deskt
 
 The physical ESP32-2432S028R display pairs over USB and uses a dedicated TLS 1.2 PSK connection over Wi-Fi. The PC initiates the connection to port 43822 on the board. Each poll carries up to four chat rows and a tap opens a current chat through the desktop focus handler. The PC's HTTP API stays on loopback. The kit includes a complete flash image and a Windows setup utility. [Board setup guide](<hardware/START HERE.md>) · [Firmware build instructions](hardware/BUILD.md)
 
+Use **… → Update display…** or the Ghost Desk tray menu to install a new **.ota.bin** on the paired display over Wi-Fi. The updater shows progress and confirms the firmware after the display reconnects. For a board running the original dual-USB Ghost Desk release, run option 4 in the Windows board kit once over USB.
+
 ## References
+
 
 [Codex chat deep links](https://learn.chatgpt.com/docs/reference/commands) · [Chrome document picture-in-picture](https://developer.chrome.com/docs/web-platform/document-picture-in-picture) · [Chrome tabs API](https://developer.chrome.com/docs/extensions/reference/api/tabs) · [Claude Code lifecycle hooks](https://code.claude.com/docs/en/hooks) · [Gemini CLI lifecycle hooks](https://geminicli.com/docs/hooks/reference/)

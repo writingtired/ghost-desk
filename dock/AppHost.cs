@@ -43,6 +43,7 @@ namespace GhostDesk {
                     throw new InvalidOperationException("The local bridge could not start on port "+port+". Close any earlier Ghost Desk bridge and try again.");
                 icon=Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
                 menu.Items.Add("Open Ghost Desk",null,(s,e)=>window.Reveal());
+                menu.Items.Add("Update display…",null,(s,e)=>window.ShowDisplayUpdater());
                 menu.Items.Add("Quit Ghost Desk",null,(s,e)=>window.Close());
                 tray.Icon=icon; tray.Text="Ghost Desk"; tray.ContextMenuStrip=menu;
                 tray.DoubleClick+=(s,e)=>window.Reveal();

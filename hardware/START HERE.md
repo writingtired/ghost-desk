@@ -2,6 +2,14 @@
 
 This kit targets a **2.8-inch ESP32-2432S028 / 2432S028R** with the classic ESP32, 4 MB flash and XPT2046 resistive touch. For a former **NMMiner board with USB-C and micro-USB**, start with the preselected **ST7789** profile. NMMiner also supports ILI9341 versions of this board. If the old firmware name or panel label identifies ILI9341, select that profile during setup. Both drivers are in the same binary. The setup utility checks the ESP32 chip and flash size. You confirm the LCD visually. [NMMiner board support](https://github.com/NMminer1024/NMMiner) · [CYD2USB reference configuration](https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/blob/main/DisplayConfig/CYD2USB/User_Setup.h)
 
+## Update a working Ghost Desk display
+
+1. Extract the whole kit. Start the updated Windows app. If a previous version is running, quit it from its tray menu first.
+2. For a display running the original dual-USB Ghost Desk release, connect its USB data cable. Open **Set up board.cmd**, choose **4**, enter its COM port and confirm the upgrade. The utility identifies your paired board, backs up and verifies its old application, and writes only the application. Your Wi-Fi, pairing, display profile and touch calibration stay in place. A new board installed with option 1 from this kit already supports wireless updates.
+3. For subsequent releases, power the display and open **Ghost Desk → … → Update display…** or right-click the Ghost Desk tray icon and choose **Update display…**. Click **Choose firmware…**, select the new **GhostDesk-CYD-2USB.ota.bin**, then click **Update display**. Keep the desktop app running and the board powered until Ghost Desk confirms the new firmware after reboot. The same build reports that it is already installed.
+
+The paired PC sends the application over the existing encrypted local Wi-Fi connection. The board writes to its spare firmware slot and checks the image before switching slots. If the transfer stops early, reopen the updater and retry once the display reconnects. The merged **GhostDesk-CYD-2USB.bin** is for first-time USB setup.
+
 ## First setup on Windows
 
 1. Extract the **whole kit** to a permanent folder. It contains the firmware, Windows setup utility and a board-compatible copy of the Ghost Desk desktop app. The first flash downloads a checksum-verified Espressif flasher. You can do this without installing Python or Arduino IDE.

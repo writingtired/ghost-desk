@@ -1,6 +1,7 @@
 param(
-    [ValidateSet('1','2','3')][string]$Mode,
-    [ValidatePattern('^COM[0-9]+$')][string]$PortName
+    [ValidateSet('1','2','3','4')][string]$Mode,
+    [ValidatePattern('^COM[0-9]+$')][string]$PortName,
+    [string]$UpgradeConfirmation
 )
 $ErrorActionPreference='Stop'
 $dir=Join-Path $env:LOCALAPPDATA 'Ghost Desk'
@@ -104,6 +105,40 @@ function Read-Panel($serial) {
         if($line -like 'GHOST ERROR *'){throw $line}
     }
 }
+function Enable-WirelessUpdate([string]$portName) {
+    $image=Join-Path $PSScriptRoot 'GhostDesk-CYD-2USB.ota.bin'
+    $checksum=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'application.sha256') -Raw).Trim().Split(' ')[0]
+    if((Get-Sha256 $image) -ne $checksum -or (Get-Item -LiteralPath $image).Length -gt 0x140000){throw 'Application image verification failed.'}
+    $config=Get-Content -LiteralPath (Join-Path $dir 'board-v1.json') -Raw|ConvertFrom-Json
+    $serial=New-Object IO.Ports.SerialPort($portName,115200,'None',8,'One')
+    $serial.ReadTimeout=250;$serial.WriteTimeout=1000
+    try {
+        $serial.Open()
+        $until=[datetime]::UtcNow.AddSeconds(10)
+        do{$board=Get-Board $serial}while(!$board -and [datetime]::UtcNow -lt $until)
+        if(!$board -or $board.name -ne $config.name -or $board.pairId -eq 'none'){throw 'The board on this port must match the Ghost Desk display paired to this PC.'}
+        if(!(Read-Panel $serial)){throw 'The board did not report a supported display profile.'}
+        $serial.WriteLine('OTA?')
+        $until=[datetime]::UtcNow.AddSeconds(2)
+        do {
+            try{if($serial.ReadLine().Trim() -eq 'GHOST OTA 1'){Write-Host 'Wireless updates are already enabled. Use Update display in Ghost Desk.';return}}catch [TimeoutException]{}
+        }while([datetime]::UtcNow -lt $until)
+    }finally{$serial.Dispose()}
+    $exe=Get-Flasher
+    $folder=Join-Path $dir 'board-backups'
+    [void][IO.Directory]::CreateDirectory($folder)
+    $backup=Join-Path $folder ('before-wireless-'+[guid]::NewGuid().ToString('N')+'.bin')
+    # This is the exact app0 image shipped in the original dual-USB kit.
+    & $exe --chip esp32 --port $portName --baud 460800 read_flash 0x10000 897920 $backup
+    if($LASTEXITCODE -ne 0 -or (Get-Sha256 $backup) -ne '45aa497799c6364bc88311ad00b333b04ca924a8860cad942bd66eb5116cbc47'){throw 'The existing app did not match the supported pre-wireless release. No firmware was written.'}
+    Write-Host "Previous application saved to $backup"
+    $confirm=$UpgradeConfirmation
+    if(!$confirm){$confirm=Read-Host "Type UPGRADE $portName to install the wireless updater and restart the display"}
+    if($confirm -cne "UPGRADE $portName"){throw 'Upgrade canceled.'}
+    & $exe --chip esp32 --port $portName --baud 460800 write_flash 0x10000 $image
+    if($LASTEXITCODE -ne 0){throw "USB write failed. Keep the cable connected. The previous application backup is $backup"}
+    Write-Host 'Application written. The display is restarting with its saved settings.'
+}
 function Select-Panel($serial) {
     $active=Read-Panel $serial
     if(!$active){throw 'This firmware did not report a display profile. Use option 1 with the updated kit first.'}
@@ -162,14 +197,16 @@ Write-Host 'Ghost Desk | 2.8-inch ESP32-2432S028 CYD, dual USB, ST7789 / ILI9341
 Write-Host '1. Back up, flash and pair (first setup)'
 Write-Host '2. Pair only (already flashed or changing Wi-Fi)'
 Write-Host '3. Adjust display only (USB; keeps Wi-Fi pairing)'
-if(!$mode){$mode=Read-Host 'Choose 1, 2 or 3'}
-if($mode -notin '1','2','3'){throw 'Setup canceled.'}
+Write-Host '4. Enable wireless updates on a paired dual-USB Ghost Desk (keeps settings)'
+if(!$mode){$mode=Read-Host 'Choose 1, 2, 3 or 4'}
+if($mode -notin '1','2','3','4'){throw 'Setup canceled.'}
 $ports=@([IO.Ports.SerialPort]::GetPortNames()|Sort-Object)
 if(!$ports.Count){throw 'No serial ports found. Plug in the board using a USB data cable.'}
 Write-Host ('Available ports: '+($ports -join ', '))
 Get-CimInstance Win32_PnPEntity -Filter "PNPClass='Ports'" -ErrorAction SilentlyContinue | ForEach-Object {Write-Host $_.Name}
 if(!$portName){$portName=(Read-Host 'Port that appeared when you plugged in the board (for example COM5)').Trim().ToUpperInvariant()}
 if($portName -notin $ports){throw 'Select a port in the list.'}
+if($mode -eq '4'){Enable-WirelessUpdate $portName;return}
 if($mode -eq '1'){Flash-Board $portName}
 Pair-Board $portName -CheckDisplay:($mode -eq '1') -DisplayOnly:($mode -eq '3')
 if($mode -eq '3'){return}
