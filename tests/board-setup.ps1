@@ -9,6 +9,12 @@ foreach($fn in $ast.FindAll({param($n)$n -is [Management.Automation.Language.Fun
 }
 $dir=Join-Path ([IO.Path]::GetTempPath()) ('ghostdesk-pair-test-'+[guid]::NewGuid().ToString('N'))
 try {
+    [void][IO.Directory]::CreateDirectory($dir)
+    $fixture=Join-Path $dir 'firmware sample.bin'
+    try {
+        [IO.File]::WriteAllBytes($fixture,[byte[]](97,98,99))
+        if((Get-Sha256 $fixture) -cne 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'){throw 'SHA-256 verification failed'}
+    }finally{if([IO.File]::Exists($fixture)){[IO.File]::Delete($fixture)}}
     $serial=[pscustomobject]@{sent=''}
     $serial|Add-Member ScriptMethod WriteLine {param($line)$this.sent=$line}
     $serial|Add-Member ScriptMethod ReadLine {return 'GHOST1 ghostdesk-ffeeddccbbaa 192.0.2.1 1234567812345678'}

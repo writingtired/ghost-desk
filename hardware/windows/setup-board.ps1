@@ -1,6 +1,18 @@
+param(
+    [ValidateSet('1','2','3')][string]$Mode,
+    [ValidatePattern('^COM[0-9]+$')][string]$PortName
+)
 $ErrorActionPreference='Stop'
 $dir=Join-Path $env:LOCALAPPDATA 'Ghost Desk'
 $base='http://127.0.0.1:43821'
+function Get-Sha256([string]$path) {
+    $stream=[IO.File]::OpenRead($path)
+    try {
+        $sha=[Security.Cryptography.SHA256]::Create()
+        try {return [BitConverter]::ToString($sha.ComputeHash($stream)).Replace('-','').ToLowerInvariant()}
+        finally {$sha.Dispose()}
+    } finally {$stream.Dispose()}
+}
 function New-Hex([int]$count) {
     $bytes=New-Object byte[] $count
     $rng=[Security.Cryptography.RandomNumberGenerator]::Create()
@@ -12,23 +24,29 @@ function Get-Flasher {
     [void][IO.Directory]::CreateDirectory($cache)
     $archive=Join-Path $cache 'esptool-v4.5.1-win64.zip'
     $expected='64d0c24499d46b80d6bd7a05c98bdacc3455ab6d503cc2a99e35711310216045'
-    if(!(Test-Path -LiteralPath $archive) -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
+    if(!(Test-Path -LiteralPath $archive) -or (Get-Sha256 $archive) -ne $expected) {
         Write-Host 'Downloading the Espressif USB flasher (about 6.4 MB)...'
         [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
         Invoke-WebRequest -UseBasicParsing 'https://github.com/espressif/arduino-esp32/releases/download/2.0.7/esptool-v4.5.1-win64.zip' -OutFile "$archive.part"
-        if((Get-FileHash -LiteralPath "$archive.part" -Algorithm SHA256).Hash -ne $expected){throw 'Flasher download checksum mismatch.'}
+        if((Get-Sha256 "$archive.part") -ne $expected){throw 'Flasher download checksum mismatch.'}
         Move-Item -LiteralPath "$archive.part" -Destination $archive -Force
     }
     $bin=Join-Path $cache 'esptool-4.5.1'
-    Expand-Archive -LiteralPath $archive -DestinationPath $bin -Force
-    $exe=Get-ChildItem -LiteralPath $bin -Filter esptool.exe -Recurse -File | Select-Object -First 1
-    if(!$exe){throw 'The flasher was missing from the verified download.'}
-    return $exe.FullName
+    [void][IO.Directory]::CreateDirectory($bin)
+    $exe=Join-Path $bin 'esptool.exe'
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip=[IO.Compression.ZipFile]::OpenRead($archive)
+    try {
+        $entry=$zip.GetEntry('esptool/esptool.exe')
+        if(!$entry){throw 'The flasher was missing from the verified download.'}
+        [IO.Compression.ZipFileExtensions]::ExtractToFile($entry,$exe,$true)
+    }finally{$zip.Dispose()}
+    return $exe
 }
 function Flash-Board([string]$portName) {
     $firmware=Join-Path $PSScriptRoot 'GhostDesk-CYD-2USB.bin'
     $expected=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'firmware.sha256') -Raw).Trim().Split(' ')[0]
-    if((Get-FileHash -LiteralPath $firmware -Algorithm SHA256).Hash -ne $expected){throw 'Firmware checksum mismatch. Extract the board kit again.'}
+    if((Get-Sha256 $firmware) -ne $expected){throw 'Firmware checksum mismatch. Extract the board kit again.'}
     $exe=Get-Flasher
     $info=& $exe --chip esp32 --port $portName flash_id
     if($LASTEXITCODE -ne 0){throw 'ESP32 detection failed. See BOOT and RESET instructions in START HERE.md.'}
@@ -43,7 +61,7 @@ function Flash-Board([string]$portName) {
     if($LASTEXITCODE -ne 0 -or (Get-Item -LiteralPath $file).Length -ne 4194304){throw 'Backup failed. Flashing stopped.'}
     & $exe --chip esp32 --port $portName --baud 460800 verify_flash 0x0 $file
     if($LASTEXITCODE -ne 0){throw 'The backup did not verify against the board. Flashing stopped.'}
-    $hash=(Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+    $hash=Get-Sha256 $file
     [IO.File]::WriteAllText("$file.sha256",$hash+'  '+[IO.Path]::GetFileName($file))
     if((Read-Host "Backup verified. To replace the firmware on the 2.8-inch CYD, type FLASH $portName") -cne "FLASH $portName"){throw 'Flash canceled. Original firmware is still on the board.'}
     & $exe --chip esp32 --port $portName --baud 460800 write_flash 0x0 $firmware
@@ -144,13 +162,13 @@ Write-Host 'Ghost Desk | 2.8-inch ESP32-2432S028 CYD, dual USB, ST7789 / ILI9341
 Write-Host '1. Back up, flash and pair (first setup)'
 Write-Host '2. Pair only (already flashed or changing Wi-Fi)'
 Write-Host '3. Adjust display only (USB; keeps Wi-Fi pairing)'
-$mode=Read-Host 'Choose 1, 2 or 3'
+if(!$mode){$mode=Read-Host 'Choose 1, 2 or 3'}
 if($mode -notin '1','2','3'){throw 'Setup canceled.'}
 $ports=@([IO.Ports.SerialPort]::GetPortNames()|Sort-Object)
 if(!$ports.Count){throw 'No serial ports found. Plug in the board using a USB data cable.'}
 Write-Host ('Available ports: '+($ports -join ', '))
 Get-CimInstance Win32_PnPEntity -Filter "PNPClass='Ports'" -ErrorAction SilentlyContinue | ForEach-Object {Write-Host $_.Name}
-$portName=(Read-Host 'Port that appeared when you plugged in the board (for example COM5)').Trim().ToUpperInvariant()
+if(!$portName){$portName=(Read-Host 'Port that appeared when you plugged in the board (for example COM5)').Trim().ToUpperInvariant()}
 if($portName -notin $ports){throw 'Select a port in the list.'}
 if($mode -eq '1'){Flash-Board $portName}
 Pair-Board $portName -CheckDisplay:($mode -eq '1') -DisplayOnly:($mode -eq '3')
